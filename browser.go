@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/fatih/color"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"golang.org/x/net/html"
@@ -40,6 +41,8 @@ type Browser struct {
 	loadingView     *tview.TextView
 	isLoading       bool
 	loadingStop     chan struct{} // Channel to signal loading animation to stop
+	searchMatches   []SearchMatch // Store search matches for navigation
+	returningFromSearchResult bool // Flag to track if returning from a selected search result
 }
 
 // NewBrowser creates a new browser instance
@@ -52,6 +55,7 @@ func NewBrowser() *Browser {
 		cookies:      make(map[string]*Cookie),
 		forceUA:      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
 		loadingStop:  make(chan struct{}),
+		returningFromSearchResult: false,
 	}
 
 	// Handle proxy configuration
@@ -63,6 +67,88 @@ func NewBrowser() *Browser {
 	}
 
 	return browser
+}
+
+// ColorToTviewFormat converts a color name to tview compatible format
+func ColorToTviewFormat(colorName string) string {
+	// Map common fatih/color names to tview format
+	switch colorName {
+	case "yellow":
+		return "yellow"
+	case "red":
+		return "red"
+	case "green":
+		return "green"
+	case "blue":
+		return "blue"
+	case "magenta":
+		return "magenta"
+	case "cyan":
+		return "cyan"
+	case "white":
+		return "white"
+	case "black":
+		return "black"
+	case "bold":
+		return "::b"
+	case "underline":
+		return "::u"
+	case "reverse":
+		return "::r"
+	default:
+		return "yellow" // default highlight color
+	}
+}
+
+// ApplyTviewColor applies color formatting to text for use in tview
+func ApplyTviewColor(text, colorName string) string {
+	colorCode := ColorToTviewFormat(colorName)
+	return fmt.Sprintf("[%s]%s[-]", colorCode, text)
+}
+
+// ApplyTviewStyle applies multi-attribute formatting to text for use in tview
+func ApplyTviewStyle(text string, fgColor, bgColor, attrs string) string {
+	var format string
+	if fgColor != "" {
+		format += fgColor
+	}
+	if bgColor != "" {
+		format += ":" + bgColor
+	}
+	if attrs != "" {
+		format += ":" + attrs
+	}
+	return fmt.Sprintf("[%s]%s[-]", format, text)
+}
+
+// GetColorFunc returns a fatih/color function for terminal output (not for tview but for other uses)
+func GetColorFunc(colorName string) func(a ...interface{}) string {
+	col := color.New()
+
+	switch colorName {
+	case "yellow":
+		col.Add(color.FgYellow)
+	case "red":
+		col.Add(color.FgRed)
+	case "green":
+		col.Add(color.FgGreen)
+	case "blue":
+		col.Add(color.FgBlue)
+	case "magenta":
+		col.Add(color.FgMagenta)
+	case "cyan":
+		col.Add(color.FgCyan)
+	case "white":
+		col.Add(color.FgWhite)
+	case "bold":
+		col.Add(color.Bold)
+	case "underline":
+		col.Add(color.Underline)
+	default:
+		col.Add(color.FgYellow) // default highlight color
+	}
+
+	return col.SprintFunc()
 }
 
 // Run starts the browser application
