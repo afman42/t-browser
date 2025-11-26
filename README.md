@@ -8,7 +8,7 @@ A lightweight terminal-based web browser written in Go. Browse websites directly
 - **Smart Content Extraction**: Strips away ads, menus, and navigation to show main content only
 - **Easy Navigation**: Move through pages with familiar keyboard shortcuts
 - **Link Selection**: Navigate and select links using the keyboard
-- **Real-time Search**: Find and highlight content as you type
+- **Enhanced Search**: Find and highlight content as you type, with selectable results list and navigation
 - **Loading Indicators**: Animated progress indicator during page loads
 - **Tab Navigation**: Switch between content view and URL input with Tab key
 - **Security Features**: URL validation, redirect limits, and input sanitization
@@ -53,11 +53,11 @@ go build
 | `/` | Start search mode |
 | `b` | Go back in history |
 | `f` | Go forward in history |
-| `j` | Move to next link |
-| `k` | Move to previous link |
-| `Enter` | Follow the selected link |
+| `j` | Move to next link (in content) or next search result (in search mode) |
+| `k` | Move to previous link (in content) or previous search result (in search mode) |
+| `Enter` | Follow the selected link (in content) or select search result (in search mode) |
 | `?` | Show help screen |
-| `Tab` | Switch between content view and URL input box |
+| `Tab` | Switch between content view and URL input box (in content) or between search input and results (in search mode) |
 | `p` | Paste URL from clipboard (when in URL input field) |
 
 ### Link Navigation
@@ -88,10 +88,12 @@ go build
 ### Search Functionality
 - Press `/` to start search mode
 - Type text to find in real-time
-- Matching text is highlighted in yellow
-- Shows count of matches found
-- Case-sensitive by default
-- Press `Escape` to exit search and return to content
+- Matching text is highlighted in yellow throughout the content
+- Shows count of matches found and displays them in a selectable list
+- Use `j` and `k` keys to navigate between search results in the list
+- Press `Enter` on a search result to return to main content with that specific match highlighted in black text on yellow background
+- Press `Tab` to switch between search input field and results list
+- Press `Escape` or `q` to exit search mode and return to original content
 
 ### Loading Indicators
 - When loading content, an animated "Loading..." indicator appears
@@ -141,6 +143,7 @@ export PROXY=http://your-proxy:port
 - **Visual Elements**: Images and complex layouts are simplified to text format
 - **Performance**: Lightweight and fast, suitable for low-resource environments
 - **Navigation**: Full keyboard-based navigation with intuitive shortcuts
+- **Search**: Enhanced search functionality allows for precise navigation to specific content matches
 
 ## 🤝 Contributing
 
