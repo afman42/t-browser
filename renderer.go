@@ -20,7 +20,7 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 		return
 	}
 
-	// Parse HTML to extract links first
+	// Parse HTML to extract links and images first
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
 	if err != nil {
 		// If parsing fails, fall back to the original method
@@ -57,6 +57,9 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 			}
 		}
 	})
+
+	// Extract all images from the document
+	images := b.extractImagesFromHTML(htmlContent, parsedURL)
 
 	// Use go-readability to extract the main content
 	article, err := readability.FromReader(strings.NewReader(htmlContent), parsedURL)
@@ -102,8 +105,9 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 		result.WriteString(fmt.Sprintf("\n[Image: %s]", article.Image))
 	}
 
-	// Store the links in browser
+	// Store the links and images in browser
 	b.links = visibleLinks
+	b.images = images
 	b.currentLinkIndex = -1 // Start with no link selected
 
 	// Set the content to the text view and store original content
@@ -185,6 +189,14 @@ func cleanExcessiveWhitespace(text string) string {
 	return result
 }
 
+// Image represents an image element on the page
+type Image struct {
+	URL     string
+	Alt     string
+	Title   string
+	Src     string
+}
+
 // extractVisibleLinks filters links to only those that appear in the readability content
 func (b *Browser) extractVisibleLinks(content string, allLinks []Link) []Link {
 	var visibleLinks []Link
@@ -204,6 +216,67 @@ func (b *Browser) extractVisibleLinks(content string, allLinks []Link) []Link {
 	}
 
 	return visibleLinks
+}
+
+// extractImagesFromHTML extracts images from HTML document
+func (b *Browser) extractImagesFromHTML(htmlContent string, baseURL *url.URL) []Image {
+	var images []Image
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	if err != nil {
+		return images // Return empty if parsing fails
+	}
+
+	// Find all images in the document
+	doc.Find("img").Each(func(i int, s *goquery.Selection) {
+		// Get the src attribute
+		src, srcExists := s.Attr("src")
+		if !srcExists {
+			return // Skip if no src attribute
+		}
+
+		// Get alt text
+		alt, altExists := s.Attr("alt")
+		if !altExists {
+			alt = "" // Default to empty if no alt text
+		}
+
+		// Get title attribute
+		title, titleExists := s.Attr("title")
+		if !titleExists {
+			title = "" // Default to empty if no title
+		}
+
+		// Resolve relative URLs
+		imageURL := src
+		if strings.HasPrefix(src, "/") {
+			// Absolute path on the same host
+			imageURL = fmt.Sprintf("%s://%s%s", baseURL.Scheme, baseURL.Host, src)
+		} else if !strings.HasPrefix(src, "http") {
+			// Relative path, combine with base URL
+			baseURLPath := fmt.Sprintf("%s://%s", baseURL.Scheme, baseURL.Host)
+			if strings.HasSuffix(baseURL.Path, "/") {
+				imageURL = baseURLPath + baseURL.Path + src
+			} else {
+				// Get directory of current page
+				dir := strings.TrimRight(baseURL.Path, "/")
+				if lastSlash := strings.LastIndex(dir, "/"); lastSlash != -1 {
+					dir = dir[:lastSlash+1]
+				} else {
+					dir = "/"
+				}
+				imageURL = baseURLPath + dir + src
+			}
+		}
+
+		images = append(images, Image{
+			URL:   imageURL,
+			Alt:   alt,
+			Title: title,
+			Src:   src,
+		})
+	})
+
+	return images
 }
 
 // embedLinkNumbers embeds link numbers directly in the content using a better algorithm
@@ -325,6 +398,9 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 		}
 	})
 
+	// Extract all images from the document
+	images := b.extractImagesFromHTML(htmlContent, currentURLParsed)
+
 	var result strings.Builder
 	tabs := 0
 
@@ -343,8 +419,9 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 	// Process content to embed link numbers directly in the text
 	processedContent := b.embedLinkNumbers(rawContent, visibleLinks)
 
-	// Store the links in browser
+	// Store the links and images in browser
 	b.links = visibleLinks
+	b.images = images
 	b.currentLinkIndex = -1 // Start with no link selected
 
 	// Dynamically adjust word wrap based on content characteristics

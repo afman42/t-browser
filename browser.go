@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -11,6 +14,13 @@ import (
 	"github.com/fatih/color"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/webp"
+	"io/ioutil"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
@@ -36,6 +46,7 @@ type Browser struct {
 	searchTerm      string
 	originalContent string // Store original content for search
 	links           []Link  // Store links found on the page
+	images          []Image // Store images found on the page
 	currentLinkIndex int   // Index of currently highlighted link
 	forceUA         string
 	loadingView     *tview.TextView
@@ -234,6 +245,14 @@ func (b *Browser) createUI() {
 			case 'l': // Show list of all links in a modal
 				if len(b.links) > 0 {
 					b.showLinksModal()
+				} else if len(b.images) > 0 {
+					// If no links but images exist, show images modal
+					b.showImagesModal()
+				}
+				return nil
+			case 'i': // Show list of all images in a modal
+				if len(b.images) > 0 {
+					b.showImagesModal()
 				}
 				return nil
 			case 'J': // Alternative: just scroll down regardless of links
@@ -448,6 +467,15 @@ Navigation:
   Enter - Confirm selection in modal
   b     - Go back in history
   f     - Go forward in history
+
+Link Handling:
+  - Links marked with [IMAGE] can be viewed/downloaded
+  - Image links show options to download or open externally
+
+Image Handling:
+  - Press 'i' to view all images on the page
+  - Images show alt text, title, and URL information
+  - View images through the images modal list
 
 Search:
   /     - Real-time search with match highlighting
@@ -684,6 +712,340 @@ func (b *Browser) animateLoading() {
 	}
 }
 
+// hasRealImageExtension checks if a URL has a real image file extension
+func (b *Browser) hasRealImageExtension(url string) bool {
+	// Check file extension first
+	imageExtensions := []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".tif"}
+
+	// Convert URL to lower case for comparison
+	lowerURL := strings.ToLower(url)
+
+	for _, ext := range imageExtensions {
+		if strings.HasSuffix(lowerURL, ext) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isImageURL checks if a URL points to an image based on extension or content type
+func (b *Browser) isImageURL(url string) bool {
+	// First check if it has a real image extension
+	if b.hasRealImageExtension(url) {
+		return true
+	}
+
+	// If no extension found in URL, try to check the content type by making a HEAD request
+	resp, err := http.Head(url)
+	if err != nil {
+		// If we can't make the request, fall back to the extension check
+		return false
+	}
+	defer resp.Body.Close()
+
+	// Check the content type header
+	contentType := resp.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "image/") {
+		return true
+	}
+
+	return false
+}
+
+// showImagePreview shows a modal with an actual image preview in terminal
+func (b *Browser) showImagePreview(imageURL string) {
+	// Create a TextView to show image info
+	imageInfo := tview.NewTextView()
+	imageInfo.SetTextColor(tcell.ColorWhite)
+	imageInfo.SetBackgroundColor(tcell.ColorNavy)
+	imageInfo.SetDynamicColors(true)
+	imageInfo.SetText(fmt.Sprintf("Loading image: %s", imageURL))
+	imageInfo.SetBorder(true)
+	imageInfo.SetTitle("Image Preview")
+
+	// Create the image widget
+	imgWidget := tview.NewImage()
+	imgWidget.SetBorder(true)
+	imgWidget.SetTitle("Image Preview - Press 'q' or ESC to close")
+
+	// Create a Flex layout for the image preview
+	flex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(imageInfo, 3, 0, false).  // Show image URL at top
+		AddItem(imgWidget, 0, 1, true)    // Show image in middle
+
+	// Update image info to show loading
+	go func() {
+		// First check content length with a HEAD request to avoid downloading large files
+		headResp, err := http.Head(imageURL)
+		if err != nil {
+			b.app.QueueUpdateDraw(func() {
+				imageInfo.SetText(fmt.Sprintf("Error getting image info: %v", err))
+				imgWidget.SetImage(nil) // Clear image
+			})
+			return
+		}
+		defer headResp.Body.Close()
+
+		// Check if the response is actually an image
+		contentType := headResp.Header.Get("Content-Type")
+		if !strings.HasPrefix(contentType, "image/") {
+			b.app.QueueUpdateDraw(func() {
+				imageInfo.SetText(fmt.Sprintf("URL does not point to an image (content type: %s)", contentType))
+				imgWidget.SetImage(nil) // Clear image
+			})
+			return
+		}
+
+		// Check content length (size) - max 5MB (5 * 1024 * 1024 bytes = 5,242,880 bytes)
+		contentLength := headResp.Header.Get("Content-Length")
+		if contentLength != "" {
+			var size int64
+			fmt.Sscanf(contentLength, "%d", &size)
+			if size > 5*1024*1024 { // 5MB limit
+				b.app.QueueUpdateDraw(func() {
+					imageInfo.SetText(fmt.Sprintf("Image is too large (%.2f MB > 5 MB)", float64(size)/(1024*1024)))
+					imgWidget.SetImage(nil) // Clear image
+				})
+				return
+			}
+		}
+
+		// Load the image in a goroutine to prevent blocking
+		resp, err := http.Get(imageURL)
+		if err != nil {
+			// Show error using app.QueueUpdateDraw
+			b.app.QueueUpdateDraw(func() {
+				imageInfo.SetText(fmt.Sprintf("Error loading image: %v", err))
+				imgWidget.SetImage(nil) // Clear image
+			})
+			return
+		}
+		defer resp.Body.Close()
+
+		// Check if the response is actually an image again (in case it changed)
+		// However, we should be more permissive since some servers return wrong content-types
+		contentType = resp.Header.Get("Content-Type")
+
+		// Read the image data with size limit
+		imgData, err := ioutil.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit
+		if err != nil {
+			b.app.QueueUpdateDraw(func() {
+				imageInfo.SetText(fmt.Sprintf("Error reading image: %v", err))
+				imgWidget.SetImage(nil) // Clear image
+			})
+			return
+		}
+
+		// Check if we reached the size limit
+		if len(imgData) >= 5*1024*1024 {
+			b.app.QueueUpdateDraw(func() {
+				imageInfo.SetText("Image is too large (exceeds 5 MB limit)")
+				imgWidget.SetImage(nil) // Clear image
+			})
+			return
+		}
+
+		// Decode the image - we'll try to decode it regardless of content-type header
+		// since some servers return incorrect content-type headers
+		img, format, err := image.Decode(bytes.NewReader(imgData))
+		if err != nil {
+			b.app.QueueUpdateDraw(func() {
+				imageInfo.SetText(fmt.Sprintf("Error decoding image (content-type: %s): %v", contentType, err))
+				imgWidget.SetImage(nil) // Clear image
+			})
+			return
+		}
+
+		// Update the image widget with the decoded image
+		b.app.QueueUpdateDraw(func() {
+			imgWidget.SetImage(img)
+			imageInfo.SetText(fmt.Sprintf("Image loaded: %s (Format: %s, Size: %dx%d)", imageURL, format, img.Bounds().Dx(), img.Bounds().Dy()))
+		})
+	}()
+
+	// Set up key handling for the image preview
+	flex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
+			// Return to the images modal
+			b.showImagesModal()
+			return nil
+		}
+		return event
+	})
+
+	// Set the flex layout as root
+	b.app.SetRoot(flex, true)
+}
+
+// downloadImage downloads an image from URL to a temporary location
+func (b *Browser) downloadImage(imageURL string) error {
+	// Create an HTTP client
+	client := &http.Client{}
+
+	// Make the GET request
+	resp, err := client.Get(imageURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Check if the response is an image
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "image/") {
+		return fmt.Errorf("URL does not point to an image (content type: %s)", contentType)
+	}
+
+	// For now, just verify we can access the image - in a real implementation
+	// you might save it to a temp file or the user's system
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// showImageErrorModal shows an error modal for image operations
+func (b *Browser) showImageErrorModal(errorMessage string) {
+	errorModal := tview.NewModal()
+	errorModal.SetBorder(true)
+	errorModal.SetTitle("Image Error")
+	errorModal.SetText(errorMessage)
+	errorModal.AddButtons([]string{"OK"})
+
+	errorModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		// Return to the links modal after showing error
+		b.showLinksModal()
+	})
+
+	// Set up key handling for the modal
+	errorModal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
+			// Return to links list
+			b.showLinksModal()
+			return nil
+		}
+		return event
+	})
+
+	b.app.SetRoot(errorModal, true)
+}
+
+// showImageSuccessModal shows a success modal for image operations
+func (b *Browser) showImageSuccessModal(successMessage string) {
+	successModal := tview.NewModal()
+	successModal.SetBorder(true)
+	successModal.SetTitle("Success")
+	successModal.SetText(successMessage)
+	successModal.AddButtons([]string{"OK"})
+
+	successModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		// Return to the links modal after showing success
+		b.showLinksModal()
+	})
+
+	// Set up key handling for the modal
+	successModal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
+			// Return to links list
+			b.showLinksModal()
+			return nil
+		}
+		return event
+	})
+
+	b.app.SetRoot(successModal, true)
+}
+
+// showImagesModal displays a modal with a list of all images on the page
+func (b *Browser) showImagesModal() {
+	if len(b.images) == 0 {
+		return
+	}
+
+	// Create a new list for images
+	imageList := tview.NewList()
+	imageList.SetBorder(true)
+	imageList.SetTitle("Images on this page")
+	imageList.ShowSecondaryText(true)
+
+	// Add each image to the list
+	for i, img := range b.images {
+		// Create title for the image
+		imgTitle := img.Alt
+		if imgTitle == "" {
+			// If no alt text, use a generic description
+			imgTitle = fmt.Sprintf("Image %d", i+1)
+		}
+
+		// Truncate long alt text to fit in the list
+		if len(imgTitle) > 50 {
+			imgTitle = imgTitle[:50] + "..."
+		}
+
+		// Extract the file extension from the URL
+		ext := "unknown"
+		lastDot := strings.LastIndex(img.URL, ".")
+		if lastDot != -1 && lastDot < len(img.URL)-1 {
+			ext = strings.ToLower(img.URL[lastDot+1:])
+			// Handle query parameters that might follow the extension
+			if queryIndex := strings.Index(ext, "?"); queryIndex != -1 {
+				ext = ext[:queryIndex]
+			}
+		}
+
+		// Format the image URL to show in secondary text with file extension, truncating long URLs
+		urlToShow := fmt.Sprintf("%s [%s]", img.URL, ext)
+		if len(urlToShow) > 70 {
+			urlToShow = urlToShow[:70] + "..."
+		}
+
+		// Add the item with primary text as image title and secondary as URL with extension
+		imageList.AddItem(imgTitle, urlToShow, 0, func(index int) func() {
+			return func() {
+				// Show image preview
+				b.showImagePreview(b.images[index].URL)
+			}
+		}(i))
+	}
+
+	// Add a close option
+	imageList.AddItem("Close", "Close the images list", 'c', func() {
+		// Close the modal by returning to main view
+		flex := tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(b.textView, 0, 1, false).
+			AddItem(b.urlInput, 3, 0, false)
+		b.app.SetRoot(flex, true)
+		b.app.SetFocus(b.textView)
+	})
+
+	// Add a link list option to return to the links modal
+	imageList.AddItem("View Links", "Return to links list", 'l', func() {
+		b.showLinksModal()
+	})
+
+	// Set up key handling for the modal
+	imageList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
+			// Close the modal by returning to main view
+			flex := tview.NewFlex().
+				SetDirection(tview.FlexRow).
+				AddItem(b.textView, 0, 1, false).
+				AddItem(b.urlInput, 3, 0, false)
+			b.app.SetRoot(flex, true)
+			b.app.SetFocus(b.textView)
+			return nil
+		}
+		return event
+	})
+
+	// Set the list as root
+	b.app.SetRoot(imageList, true)
+}
+
 // showLinksModal displays a modal with a list of all links on the page
 func (b *Browser) showLinksModal() {
 	if len(b.links) == 0 {
@@ -710,20 +1072,36 @@ func (b *Browser) showLinksModal() {
 			urlToShow = urlToShow[:70] + "..."
 		}
 
-		// Add the item with primary text as link text and secondary as URL
-		linkList.AddItem(linkText, urlToShow, 0, func(index int) func() {
-			return func() {
-				// Navigate to the selected link
-				b.NavigateTo(b.links[index].URL)
-				// Close the modal by returning to main view
-				flex := tview.NewFlex().
-					SetDirection(tview.FlexRow).
-					AddItem(b.textView, 0, 1, false).
-					AddItem(b.urlInput, 3, 0, false)
-				b.app.SetRoot(flex, true)
-				b.app.SetFocus(b.textView)
+		// Check if the link is an image
+		isImage := b.isImageURL(link.URL)
+		hasRealExt := b.hasRealImageExtension(link.URL)
+		if isImage {
+			if hasRealExt {
+				linkText += " [IMAGE*]" // Indicate that this is an image with real extension
+			} else {
+				linkText += " [IMAGE]" // Indicate that this is an image (detected by content type)
 			}
-		}(i))
+		}
+
+		// Add the item with primary text as link text and secondary as URL
+		linkList.AddItem(linkText, urlToShow, 0, func(index int, isImg bool, hasExt bool) func() {
+			return func() {
+				if isImg {
+					// Show image preview instead of navigating
+					b.showImagePreview(b.links[index].URL)
+				} else {
+					// Navigate to the selected link
+					b.NavigateTo(b.links[index].URL)
+					// Close the modal by returning to main view
+					flex := tview.NewFlex().
+						SetDirection(tview.FlexRow).
+						AddItem(b.textView, 0, 1, false).
+						AddItem(b.urlInput, 3, 0, false)
+					b.app.SetRoot(flex, true)
+					b.app.SetFocus(b.textView)
+				}
+			}
+		}(i, isImage, hasRealExt))
 	}
 
 	// Add a close option
@@ -736,6 +1114,13 @@ func (b *Browser) showLinksModal() {
 		b.app.SetRoot(flex, true)
 		b.app.SetFocus(b.textView)
 	})
+
+	// Add an images option if there are images on the page
+	if len(b.images) > 0 {
+		linkList.AddItem("Show Images", fmt.Sprintf("View all %d images on this page", len(b.images)), 'i', func() {
+			b.showImagesModal()
+		})
+	}
 
 	// Add a go back option if there's history
 	if b.historyIndex > 0 {
