@@ -1,0 +1,13 @@
+Key Features of a Terminal Browser Output Text in Go
+	
+HTTP/HTTPS Fetching Use Go’s net/http to GET/POST web pages. Support redirects, TLS, cookies (optional).
+HTML Parsing Parse raw HTML using Go libraries like goquery (jQuery-like) or golang.org/x/net/html.
+Text Rendering Convert HTML to formatted plain text (with indentation, links, lists). Strip scripts/styles.
+Back/History Stack Maintain browsing history (LIFO stack) for back/forward navigation.
+Keyboard UI Use a terminal UI library, use tview for interactive navigation: arrow keys, Enter,q, / (search).
+Basic Rendering Engine Implement a lightweight renderer: headings, paragraphs, lists, tables (simplified), formattedtext.
+User Agent Spoofing Set custom User-Agent header to avoid mobile/desktop detection issues.
+Cookie Support (Optional) Store session cookies (e.g., for login flows) using http.CookieJar.
+Search (Text) Support / for searching text in the current page.
+Proxy/TOR Support Use environment variables or config for HTTP/HTTPS/SOCKS proxies.
+Encoding Detection Handle Content-Type charset (e.g., utf-8, iso-8859-1) and convert if needed.
