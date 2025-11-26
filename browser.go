@@ -753,6 +753,37 @@ func (b *Browser) isImageURL(url string) bool {
 	return false
 }
 
+// showAnimatedImageLoading shows animated loading text for image preview
+func (b *Browser) showAnimatedImageLoading(imageInfo *tview.TextView, imageURL string, stopChan chan struct{}) {
+	// Animation sequence: Loading, Loading., Loading.., Loading...
+	phases := []string{"Loading", "Loading.", "Loading..", "Loading..."}
+	currentPhase := 0
+
+	for {
+		select {
+		case <-stopChan:
+			// Stop animation
+			return
+		default:
+			// Update the loading text with the current phase
+			animationText := fmt.Sprintf("[yellow]%s %s[white]", phases[currentPhase], imageURL)
+
+			// Update the text in the main goroutine to prevent race conditions
+			b.app.QueueUpdateDraw(func() {
+				if imageInfo != nil {
+					imageInfo.SetText(animationText)
+				}
+			})
+
+			// Move to the next phase
+			currentPhase = (currentPhase + 1) % len(phases)
+
+			// Wait before updating again
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+}
+
 // showImagePreview shows a modal with an actual image preview in terminal
 func (b *Browser) showImagePreview(imageURL string) {
 	// Create a TextView to show image info
@@ -760,7 +791,7 @@ func (b *Browser) showImagePreview(imageURL string) {
 	imageInfo.SetTextColor(tcell.ColorWhite)
 	imageInfo.SetBackgroundColor(tcell.ColorNavy)
 	imageInfo.SetDynamicColors(true)
-	imageInfo.SetText(fmt.Sprintf("Loading image: %s", imageURL))
+	imageInfo.SetText(fmt.Sprintf("[yellow]Loading... %s[white]", imageURL))
 	imageInfo.SetBorder(true)
 	imageInfo.SetTitle("Image Preview")
 
@@ -775,11 +806,20 @@ func (b *Browser) showImagePreview(imageURL string) {
 		AddItem(imageInfo, 3, 0, false).  // Show image URL at top
 		AddItem(imgWidget, 0, 1, true)    // Show image in middle
 
+	// Create a stop channel for the loading animation
+	loadingStop := make(chan struct{})
+
+	// Start the animated loading
+	go b.showAnimatedImageLoading(imageInfo, imageURL, loadingStop)
+
 	// Update image info to show loading
 	go func() {
 		// First check content length with a HEAD request to avoid downloading large files
 		headResp, err := http.Head(imageURL)
 		if err != nil {
+			// Stop the animation
+			close(loadingStop)
+
 			b.app.QueueUpdateDraw(func() {
 				imageInfo.SetText(fmt.Sprintf("Error getting image info: %v", err))
 				imgWidget.SetImage(nil) // Clear image
@@ -791,6 +831,9 @@ func (b *Browser) showImagePreview(imageURL string) {
 		// Check if the response is actually an image
 		contentType := headResp.Header.Get("Content-Type")
 		if !strings.HasPrefix(contentType, "image/") {
+			// Stop the animation
+			close(loadingStop)
+
 			b.app.QueueUpdateDraw(func() {
 				imageInfo.SetText(fmt.Sprintf("URL does not point to an image (content type: %s)", contentType))
 				imgWidget.SetImage(nil) // Clear image
@@ -804,6 +847,9 @@ func (b *Browser) showImagePreview(imageURL string) {
 			var size int64
 			fmt.Sscanf(contentLength, "%d", &size)
 			if size > 5*1024*1024 { // 5MB limit
+				// Stop the animation
+				close(loadingStop)
+
 				b.app.QueueUpdateDraw(func() {
 					imageInfo.SetText(fmt.Sprintf("Image is too large (%.2f MB > 5 MB)", float64(size)/(1024*1024)))
 					imgWidget.SetImage(nil) // Clear image
@@ -815,6 +861,9 @@ func (b *Browser) showImagePreview(imageURL string) {
 		// Load the image in a goroutine to prevent blocking
 		resp, err := http.Get(imageURL)
 		if err != nil {
+			// Stop the animation
+			close(loadingStop)
+
 			// Show error using app.QueueUpdateDraw
 			b.app.QueueUpdateDraw(func() {
 				imageInfo.SetText(fmt.Sprintf("Error loading image: %v", err))
@@ -831,6 +880,9 @@ func (b *Browser) showImagePreview(imageURL string) {
 		// Read the image data with size limit
 		imgData, err := ioutil.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit
 		if err != nil {
+			// Stop the animation
+			close(loadingStop)
+
 			b.app.QueueUpdateDraw(func() {
 				imageInfo.SetText(fmt.Sprintf("Error reading image: %v", err))
 				imgWidget.SetImage(nil) // Clear image
@@ -840,6 +892,9 @@ func (b *Browser) showImagePreview(imageURL string) {
 
 		// Check if we reached the size limit
 		if len(imgData) >= 5*1024*1024 {
+			// Stop the animation
+			close(loadingStop)
+
 			b.app.QueueUpdateDraw(func() {
 				imageInfo.SetText("Image is too large (exceeds 5 MB limit)")
 				imgWidget.SetImage(nil) // Clear image
@@ -851,12 +906,18 @@ func (b *Browser) showImagePreview(imageURL string) {
 		// since some servers return incorrect content-type headers
 		img, format, err := image.Decode(bytes.NewReader(imgData))
 		if err != nil {
+			// Stop the animation
+			close(loadingStop)
+
 			b.app.QueueUpdateDraw(func() {
 				imageInfo.SetText(fmt.Sprintf("Error decoding image (content-type: %s): %v", contentType, err))
 				imgWidget.SetImage(nil) // Clear image
 			})
 			return
 		}
+
+		// Stop the animation
+		close(loadingStop)
 
 		// Update the image widget with the decoded image
 		b.app.QueueUpdateDraw(func() {
@@ -965,6 +1026,11 @@ func (b *Browser) showImagesModal() {
 		return
 	}
 
+	// Show loading indicator first if there are many images
+	if len(b.images) > 50 { // Only show loading for larger lists
+		b.showLoadingModal("Loading Images", fmt.Sprintf("[yellow]Loading %d images...[white]", len(b.images)))
+	}
+
 	// Create a new list for images
 	imageList := tview.NewList()
 	imageList.SetBorder(true)
@@ -973,6 +1039,15 @@ func (b *Browser) showImagesModal() {
 
 	// Add each image to the list
 	for i, img := range b.images {
+		// Only add first 100 images if there are too many to avoid performance issues
+		if i >= 100 && len(b.images) > 100 {
+			// Add option to see all images if there are more than 100
+			imageList.AddItem(fmt.Sprintf("... and %d more images", len(b.images)-100), "Show all images in separate view", 0, func() {
+				b.showAllImagesModal()
+			})
+			break
+		}
+
 		// Create title for the image
 		imgTitle := img.Alt
 		if imgTitle == "" {
@@ -980,11 +1055,7 @@ func (b *Browser) showImagesModal() {
 			imgTitle = fmt.Sprintf("Image %d", i+1)
 		}
 
-		// Truncate long alt text to fit in the list
-		if len(imgTitle) > 50 {
-			imgTitle = imgTitle[:50] + "..."
-		}
-
+		// Don't truncate text when there are many images, just display as is
 		// Extract the file extension from the URL
 		ext := "unknown"
 		lastDot := strings.LastIndex(img.URL, ".")
@@ -1042,6 +1113,94 @@ func (b *Browser) showImagesModal() {
 		return event
 	})
 
+	// Set the list as root (this removes the loading indicator)
+	b.app.SetRoot(imageList, true)
+}
+
+// showAllImagesModal displays all images in a paginated way to handle too many images
+func (b *Browser) showAllImagesModal() {
+	if len(b.images) == 0 {
+		return
+	}
+
+	// Create a new list for all images
+	imageList := tview.NewList()
+	imageList.SetBorder(true)
+	imageList.SetTitle(fmt.Sprintf("All Images (%d total)", len(b.images)))
+	imageList.ShowSecondaryText(true)
+
+	// Add each image to the list
+	for i, img := range b.images {
+		// Create title for the image
+		imgTitle := img.Alt
+		if imgTitle == "" {
+			// If no alt text, use a generic description
+			imgTitle = fmt.Sprintf("Image %d", i+1)
+		}
+
+		// Don't truncate text when there are many images, just display as is
+		// Extract the file extension from the URL
+		ext := "unknown"
+		lastDot := strings.LastIndex(img.URL, ".")
+		if lastDot != -1 && lastDot < len(img.URL)-1 {
+			ext = strings.ToLower(img.URL[lastDot+1:])
+			// Handle query parameters that might follow the extension
+			if queryIndex := strings.Index(ext, "?"); queryIndex != -1 {
+				ext = ext[:queryIndex]
+			}
+		}
+
+		// Format the image URL to show in secondary text with file extension, truncating long URLs
+		urlToShow := fmt.Sprintf("%s [%s]", img.URL, ext)
+		if len(urlToShow) > 70 {
+			urlToShow = urlToShow[:70] + "..."
+		}
+
+		// Add the item with primary text as image title and secondary as URL with extension
+		imageList.AddItem(imgTitle, urlToShow, 0, func(index int) func() {
+			return func() {
+				// Show image preview
+				b.showImagePreview(b.images[index].URL)
+			}
+		}(i))
+	}
+
+	// Add a close option
+	imageList.AddItem("Close", "Close the images list", 'c', func() {
+		// Close the modal by returning to main view
+		flex := tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(b.textView, 0, 1, false).
+			AddItem(b.urlInput, 3, 0, false)
+		b.app.SetRoot(flex, true)
+		b.app.SetFocus(b.textView)
+	})
+
+	// Add a link list option to return to the links modal
+	imageList.AddItem("View Links", "Return to links list", 'l', func() {
+		b.showLinksModal()
+	})
+
+	// Add a go back option to return to the limited view
+	imageList.AddItem("Back to Limited View", "Return to first 100 images", 'b', func() {
+		b.showImagesModal()
+	})
+
+	// Set up key handling for the modal
+	imageList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
+			// Close the modal by returning to main view
+			flex := tview.NewFlex().
+				SetDirection(tview.FlexRow).
+				AddItem(b.textView, 0, 1, false).
+				AddItem(b.urlInput, 3, 0, false)
+			b.app.SetRoot(flex, true)
+			b.app.SetFocus(b.textView)
+			return nil
+		}
+		return event
+	})
+
 	// Set the list as root
 	b.app.SetRoot(imageList, true)
 }
@@ -1052,26 +1211,30 @@ func (b *Browser) showLinksModal() {
 		return
 	}
 
+	// Show loading indicator first if there are many links
+	if len(b.links) > 50 { // Only show loading for larger lists
+		b.showLoadingModal("Loading Links", fmt.Sprintf("[yellow]Loading %d links...[white]", len(b.links)))
+	}
+
 	// Create a new list for links
 	linkList := tview.NewList()
 	linkList.SetBorder(true)
 	linkList.SetTitle("Links on this page")
 	linkList.ShowSecondaryText(true)
 
-	// Add each link to the list
+	// Add each link to the list (with limit to prevent too many items for performance)
 	for i, link := range b.links {
+		// Only add first 100 links if there are too many to avoid performance issues
+		if i >= 100 && len(b.links) > 100 {
+			// Add option to see all links if there are more than 100
+			linkList.AddItem(fmt.Sprintf("... and %d more links", len(b.links)-100), "Show all links in separate view", 0, func() {
+				b.showAllLinksModal()
+			})
+			break
+		}
+
 		linkText := link.Text
-		// Truncate long link text to fit in the list
-		if len(linkText) > 50 {
-			linkText = linkText[:50] + "..."
-		}
-
-		// Format the URL to show just the domain and path, truncating long paths
-		urlToShow := link.URL
-		if len(urlToShow) > 70 {
-			urlToShow = urlToShow[:70] + "..."
-		}
-
+		// Don't truncate text when there are many links, just display as is
 		// Check if the link is an image
 		isImage := b.isImageURL(link.URL)
 		hasRealExt := b.hasRealImageExtension(link.URL)
@@ -1081,6 +1244,12 @@ func (b *Browser) showLinksModal() {
 			} else {
 				linkText += " [IMAGE]" // Indicate that this is an image (detected by content type)
 			}
+		}
+
+		// Format the URL to show just the domain and path, truncating long paths
+		urlToShow := link.URL
+		if len(urlToShow) > 70 {
+			urlToShow = urlToShow[:70] + "..."
 		}
 
 		// Add the item with primary text as link text and secondary as URL
@@ -1146,8 +1315,113 @@ func (b *Browser) showLinksModal() {
 		return event
 	})
 
+	// Set the list as root (this removes the loading indicator)
+	b.app.SetRoot(linkList, true)
+}
+
+// showAllLinksModal displays all links in a paginated way to handle too many links
+func (b *Browser) showAllLinksModal() {
+	if len(b.links) == 0 {
+		return
+	}
+
+	// Create a new list for all links
+	linkList := tview.NewList()
+	linkList.SetBorder(true)
+	linkList.SetTitle(fmt.Sprintf("All Links (%d total)", len(b.links)))
+	linkList.ShowSecondaryText(true)
+
+	// Add each link to the list
+	for i, link := range b.links {
+		linkText := link.Text
+		// Don't truncate text when there are many links, just display as is
+		// Check if the link is an image
+		isImage := b.isImageURL(link.URL)
+		hasRealExt := b.hasRealImageExtension(link.URL)
+		if isImage {
+			if hasRealExt {
+				linkText += " [IMAGE*]" // Indicate that this is an image with real extension
+			} else {
+				linkText += " [IMAGE]" // Indicate that this is an image (detected by content type)
+			}
+		}
+
+		// Format the URL to show just the domain and path, truncating long paths
+		urlToShow := link.URL
+		if len(urlToShow) > 70 {
+			urlToShow = urlToShow[:70] + "..."
+		}
+
+		// Add the item with primary text as link text and secondary as URL
+		linkList.AddItem(linkText, urlToShow, 0, func(index int, isImg bool, hasExt bool) func() {
+			return func() {
+				if isImg {
+					// Show image preview instead of navigating
+					b.showImagePreview(b.links[index].URL)
+				} else {
+					// Navigate to the selected link
+					b.NavigateTo(b.links[index].URL)
+					// Close the modal by returning to main view
+					flex := tview.NewFlex().
+						SetDirection(tview.FlexRow).
+						AddItem(b.textView, 0, 1, false).
+						AddItem(b.urlInput, 3, 0, false)
+					b.app.SetRoot(flex, true)
+					b.app.SetFocus(b.textView)
+				}
+			}
+		}(i, isImage, hasRealExt))
+	}
+
+	// Add a close option
+	linkList.AddItem("Close", "Close the links list", 'c', func() {
+		// Close the modal by returning to main view
+		flex := tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(b.textView, 0, 1, false).
+			AddItem(b.urlInput, 3, 0, false)
+		b.app.SetRoot(flex, true)
+		b.app.SetFocus(b.textView)
+	})
+
+	// Add a go back option to return to the limited view
+	linkList.AddItem("Back to Limited View", "Return to first 100 links", 'b', func() {
+		b.showLinksModal()
+	})
+
+	// Set up key handling for the modal
+	linkList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
+			// Close the modal by returning to main view
+			flex := tview.NewFlex().
+				SetDirection(tview.FlexRow).
+				AddItem(b.textView, 0, 1, false).
+				AddItem(b.urlInput, 3, 0, false)
+			b.app.SetRoot(flex, true)
+			b.app.SetFocus(b.textView)
+			return nil
+		}
+		return event
+	})
+
 	// Set the list as root
 	b.app.SetRoot(linkList, true)
+}
+
+// showLoadingModal shows a temporary loading modal for modals when needed
+func (b *Browser) showLoadingModal(title, message string) *tview.TextView {
+	loadingView := tview.NewTextView()
+	loadingView.SetDynamicColors(true)
+	loadingView.SetTextAlign(tview.AlignCenter)
+	loadingView.SetBorder(true)
+	loadingView.SetBackgroundColor(tcell.ColorBlue)
+	loadingView.SetTextColor(tcell.ColorWhite)
+	loadingView.SetTitle(title)
+	loadingView.SetText(message)
+
+	b.app.SetRoot(loadingView, true)
+
+	return loadingView
 }
 
 // hideLoadingIndicator hides the loading indicator and returns to the main view
