@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -35,6 +36,9 @@ type Browser struct {
 	links           []Link  // Store links found on the page
 	currentLinkIndex int   // Index of currently highlighted link
 	forceUA         string
+	loadingView     *tview.TextView
+	isLoading       bool
+	loadingStop     chan struct{} // Channel to signal loading animation to stop
 }
 
 // NewBrowser creates a new browser instance
@@ -46,6 +50,7 @@ func NewBrowser() *Browser {
 		client:       NewHTTPClient(),
 		cookies:      make(map[string]*Cookie),
 		forceUA:      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		loadingStop:  make(chan struct{}),
 	}
 
 	// Handle proxy configuration
@@ -75,8 +80,14 @@ func (b *Browser) Run() error {
 		b.NavigateTo("https://example.com")
 	}
 
-	// Start the application
-	if err := b.app.SetRoot(b.textView, true).EnableMouse(true).Run(); err != nil {
+	// Create a flex layout to hold both content and input
+	flex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
+		AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
+
+	// Start the application with the flex layout
+	if err := b.app.SetRoot(flex, true).EnableMouse(true).Run(); err != nil {
 		return err
 	}
 	return nil
@@ -133,7 +144,16 @@ func (b *Browser) createUI() {
 			case '?': // Show help/usage information
 				b.showHelp()
 				return nil
+			case '\t': // Tab key to switch to URL input
+				b.app.SetFocus(b.urlInput)
+				return nil
 			}
+		}
+
+		// Also handle tcell.KeyTAB for consistency
+		if event.Key() == tcell.KeyTAB {
+			b.app.SetFocus(b.urlInput)
+			return nil
 		}
 
 		return event
@@ -155,14 +175,16 @@ func (b *Browser) createUI() {
 			b.app.SetFocus(b.textView)
 		}
 	})
+	// Capture tab to switch back to content view
+	b.urlInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyTAB {
+			b.app.SetFocus(b.textView)
+			return nil // Consume the event
+		}
+		return event
+	})
 
-	// Simple layout with just content and input
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
-		AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
-
-	b.app.SetRoot(flex, true)
+	// Layout is set in the Run function
 }
 
 // updateTitleBar updates the title bar with the current link's URL
@@ -186,7 +208,10 @@ func (b *Browser) NavigateTo(url string) {
 	// Validate the URL before processing
 	validatedURL, err := b.validateAndSanitizeURL(url)
 	if err != nil {
-		b.displayError(fmt.Sprintf("Invalid URL: %v", err))
+		// Since we're potentially in the UI thread, ensure UI updates are queued
+		b.app.QueueUpdateDraw(func() {
+			b.displayError(fmt.Sprintf("Invalid URL: %v", err))
+		})
 		return
 	}
 
@@ -196,23 +221,40 @@ func (b *Browser) NavigateTo(url string) {
 		b.historyIndex = len(b.history) - 1
 	}
 
-	// Fetch the page
-	content, err := b.client.FetchPage(validatedURL)
-	if err != nil {
-		b.displayError(fmt.Sprintf("Error fetching page: %v", err))
-		return
-	}
+	// Prepare the fetch operation in a separate goroutine to not block UI
+	go func() {
+		// Show loading indicator from the UI thread
+		b.app.QueueUpdateDraw(func() {
+			b.showLoadingIndicator()
+		})
 
-	// Update current URL
-	b.currentURL = url
+		// Small delay to ensure the loading indicator appears before fetching
+		time.Sleep(30 * time.Millisecond)
 
-	// Render the page content
-	b.renderPage(content, url)
+		// Fetch the page content
+		content, err := b.client.FetchPage(validatedURL)
 
-	// Clear the title bar when navigating to a new page
-	// The links will be refreshed, so reset current link index
-	b.currentLinkIndex = -1
-	b.updateTitleBar(-1)
+		// Hide loading indicator and handle the result from the UI thread
+		b.app.QueueUpdateDraw(func() {
+			b.hideLoadingIndicator()
+
+			if err != nil {
+				b.displayError(fmt.Sprintf("Error fetching page: %v", err))
+				return
+			}
+
+			// Update current URL
+			b.currentURL = url
+
+			// Render the page content
+			b.renderPage(content, url)
+
+			// Clear the title bar when navigating to a new page
+			// The links will be refreshed, so reset current link index
+			b.currentLinkIndex = -1
+			b.updateTitleBar(-1)
+		})
+	}()
 }
 
 // displayError shows an error message in the text view
@@ -446,4 +488,92 @@ func (b *Browser) validateAndSanitizeURL(inputURL string) (string, error) {
 
 	// Return the validated URL
 	return inputURL, nil
+}
+
+// showLoadingIndicator shows the animated loading indicator
+func (b *Browser) showLoadingIndicator() {
+	if b.isLoading {
+		return // Already showing loading indicator
+	}
+
+	b.isLoading = true
+
+	// Create the loading view
+	b.loadingView = tview.NewTextView()
+	b.loadingView.SetDynamicColors(true)
+	b.loadingView.SetTextAlign(tview.AlignCenter)
+	b.loadingView.SetBorder(true)
+	b.loadingView.SetBackgroundColor(tcell.ColorBlue)
+	b.loadingView.SetTextColor(tcell.ColorWhite)
+	b.loadingView.SetTitle("Loading")
+
+	// Set initial loading text
+	b.loadingView.SetText("[yellow]Loading...[white]")
+
+	// Replace the current view with loading indicator
+	b.app.SetRoot(b.loadingView, true)
+
+	// Force a draw to show the loading indicator immediately
+	go func() {
+		time.Sleep(10 * time.Millisecond) // Brief pause to allow UI setup
+		b.app.Draw()
+	}()
+
+	// Start the animation in a separate goroutine
+	go b.animateLoading()
+}
+
+// animateLoading updates the loading indicator with animation
+func (b *Browser) animateLoading() {
+	// Animation sequence: Loading, Loading., Loading.., Loading...
+	phases := []string{"Loading", "Loading.", "Loading..", "Loading..."}
+	currentPhase := 0
+
+	for {
+		select {
+		case <-b.loadingStop:
+			// Stop animation when loading is done
+			return
+		default:
+			// Update the loading text with the current phase
+			animationText := fmt.Sprintf("[yellow]%s[white]", phases[currentPhase])
+
+			// Update the text in the main goroutine to prevent race conditions
+			b.app.QueueUpdateDraw(func() {
+				if b.loadingView != nil {
+					b.loadingView.SetText(animationText)
+				}
+			})
+
+			// Move to the next phase
+			currentPhase = (currentPhase + 1) % len(phases)
+
+			// Wait before updating again
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+}
+
+// hideLoadingIndicator hides the loading indicator and returns to the main view
+func (b *Browser) hideLoadingIndicator() {
+	if !b.isLoading {
+		return
+	}
+
+	// Stop the animation
+	close(b.loadingStop)
+
+	// Create a new stop channel for future use
+	b.loadingStop = make(chan struct{})
+
+	// Reset loading flag
+	b.isLoading = false
+
+	// Return to the main view (textView)
+	flex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
+		AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
+
+	b.app.SetRoot(flex, true)
 }
