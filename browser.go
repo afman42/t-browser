@@ -361,21 +361,46 @@ Navigation:
 Search:
   /     - Real-time search with match highlighting
 
-Other:
+Interface:
+  Tab   - Switch between content view and URL input box
   ?     - Show this help information
   q     - Quit browser
   Ctrl+C - Quit browser
 
+URL Input:
+  - Type URL in the bottom input box and press Enter
+  - Automatically adds 'https://' if no protocol specified
+  - Press Tab to return to content view
+
 Link Navigation:
   - Links appear in content as "text [n]"
+  - Navigate with j/k keys to highlight links
   - Current link number is highlighted in blue
   - URL of current link shown in title bar
 
+Loading Indicators:
+  - Animated "Loading..." indicator appears when fetching pages
+  - Shows progress during page load
+  - Automatically disappears when content loads
+
+Security Features:
+  - Blocks dangerous URL schemes (javascript:, data:, etc.)
+  - Prevents access to local/internal addresses
+  - Limits redirect chains to prevent loops
+  - Sanitizes input to prevent formatting code injection
+
+Content Processing:
+  - Extracts main content and removes ads/navigation
+  - Preserves basic formatting and structure
+  - Identifies and numbers all links automatically
+  - Supports multiple character encodings (UTF-8, Latin-1, etc.)
+
 Accessibility Features:
-  - Keyboard navigation only
+  - Full keyboard navigation
   - Clear visual indicators
   - High contrast highlighting
   - Readable text formatting
+  - Responsive controls
 
 Press any key to close this help.`
 
