@@ -8,12 +8,14 @@ A lightweight terminal-based web browser written in Go. Browse websites directly
 - **Smart Content Extraction**: Strips away ads, menus, and navigation to show main content only
 - **Easy Navigation**: Move through pages with familiar keyboard shortcuts
 - **Link Selection**: View all links in a clean modal list with 'l' key
+- **Image Support**: View images directly in terminal with 'i' key (supports JPG, PNG, GIF, BMP, WebP)
 - **Enhanced Search**: Find and highlight content as you type
 - **Loading Indicators**: Animated progress indicator during page loads
 - **Tab Navigation**: Switch between content view and URL input with Tab key
 - **Security Features**: URL validation, redirect limits, and input sanitization
 - **Multiple Encodings**: Handles UTF-8, Latin-1, and other character encodings
 - **Proxy Support**: Works with proxy servers for network access
+- **File Size Protection**: Auto-checks image sizes (max 5MB) to prevent large downloads
 
 ## 🚀 Quick Start
 
@@ -55,7 +57,8 @@ go build
 | `f` | Go forward in history |
 | `j` | Scroll down content |
 | `k` | Scroll up content |
-| `l` | Show modal list of all links on page |
+| `l` | Show modal list of all links on page (or images if no links) |
+| `i` | Show modal list of all images on page |
 | `Enter` | Confirm selection in modal |
 | `?` | Show help screen |
 | `Tab` | Switch between content view and URL input box |
@@ -69,9 +72,20 @@ go build
 ### Link Navigation
 - Press `l` to open a clean modal list of all links on the current page
 - Each link shows both the link text and full URL for context
+- Image links are marked with [IMAGE] indicator (real extensions) or [IMAGE*] (detected)
 - Use arrow keys to navigate the list and Enter to select a link
+- For image links, see option to preview directly in terminal
 - Includes a "Go Back" button to return to the previous page if available
 - Press Escape or 'q' to close the modal and return to content
+
+### Image Handling
+- Press `i` to open a modal list of all images on the current page
+- Each image shows alt text, title, URL, and file extension
+- Images with real extensions are clearly marked with the file type (e.g., [.png], [.jpg])
+- Select any image to view it directly in the terminal using tview's image component
+- Supports major formats: JPG, PNG, GIF, BMP, WebP, SVG, ICO, TIFF
+- Automatic file size checking (max 5MB) prevents large downloads
+- Press Escape or 'q' to return to the image list or main content
 
 ### Clipboard Support
 - Press `p` when in the URL input field to paste content from clipboard
@@ -113,17 +127,20 @@ export PROXY=http://your-proxy:port
 - **Redirect Limits**: Prevents infinite redirect loops (max 10 redirects)
 - **Local Address Blocking**: Prevents access to internal/local addresses
 - **Input Sanitization**: Escapes formatting codes to prevent injection attacks
+- **Size Protection**: Limits image downloads to 5MB to prevent large file attacks
 - **Content Security**: Sanitizes web content to prevent formatting code injection
 
 ## 🏗️ How It Works
 
 1. **Request Processing**: Makes HTTP requests with appropriate headers and user agent
 2. **Content Extraction**: Uses `go-readability` to extract main content while filtering out ads, menus, etc.
-3. **Text Rendering**: Converts HTML to readable plain text with proper formatting
-4. **Terminal UI**: Uses `tview` and `tcell` to create interactive terminal interface
-5. **Link Management**: Identifies and presents all visible links in a modal list
-6. **Loading Indicators**: Shows animated progress during page loads
-7. **Focus Management**: Properly handles focus switching between UI components
+3. **Image Detection**: Identifies and extracts images from HTML for separate handling
+4. **Text Rendering**: Converts HTML to readable plain text with proper formatting
+5. **Terminal UI**: Uses `tview` and `tcell` to create interactive terminal interface
+6. **Link Management**: Identifies and presents all visible links in a modal list
+7. **Image Preview**: Renders images directly in terminal using tview's image component
+8. **Loading Indicators**: Shows animated progress during page loads
+9. **Focus Management**: Properly handles focus switching between UI components
 
 ## 🔧 Dependencies
 
@@ -133,6 +150,9 @@ export PROXY=http://your-proxy:port
 - `github.com/rivo/tview` - Terminal widgets and UI components
 - `golang.org/x/net/html` - HTML processing utilities
 - `golang.org/x/text` - Character encoding support
+- `golang.org/x/image/bmp` - BMP image support
+- `golang.org/x/image/webp` - WebP image support
+- `image/gif`, `image/jpeg`, `image/png` - Standard image format support
 
 ## 📝 Notes
 
@@ -141,6 +161,7 @@ export PROXY=http://your-proxy:port
 - **Performance**: Lightweight and fast, suitable for low-resource environments
 - **Navigation**: Full keyboard-based navigation with intuitive shortcuts
 - **Link Handling**: All visible links are presented in an organized modal list accessible with 'l' key
+- **Image Support**: Images are rendered directly in terminal using block characters for pixel representation
 
 ## 🤝 Contributing
 

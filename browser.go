@@ -463,19 +463,24 @@ func (b *Browser) showHelp() {
 Navigation:
   j     - Scroll down content
   k     - Scroll up content
-  l     - Show all links in a modal list
+  l     - Show modal list of all links on page (or images if no links)
+  i     - Show modal list of all images on page
   Enter - Confirm selection in modal
   b     - Go back in history
   f     - Go forward in history
 
 Link Handling:
-  - Links marked with [IMAGE] can be viewed/downloaded
-  - Image links show options to download or open externally
+  - Links marked with [IMAGE] for detected images, [IMAGE*] for real extensions
+  - Press Enter on any link to navigate to that page
+  - Image links preview directly in terminal when selected
 
 Image Handling:
-  - Press 'i' to view all images on the page
-  - Images show alt text, title, and URL information
-  - View images through the images modal list
+  - Supports formats: JPG, PNG, GIF, BMP, WebP, SVG, ICO, TIFF
+  - Press 'i' to view all images on the current page
+  - Each image shows alt text, title, URL, and file extension
+  - Automatic size checking (max 5MB) to prevent large downloads
+  - Images render directly in terminal using block characters
+  - Press Enter on any image to preview it in terminal
 
 Search:
   /     - Real-time search with match highlighting
@@ -496,15 +501,9 @@ URL Input:
 Clipboard:
   - Press 'p' when in URL input field to paste URL from clipboard
 
-Link Navigation:
-  - Links appear in content as "text [n]"
-  - Navigate with j/k keys to highlight links
-  - Current link number is highlighted in blue
-  - URL of current link shown in title bar
-
 Loading Indicators:
   - Animated "Loading..." indicator appears when fetching pages
-  - Shows progress during page load
+  - Shows progress during page loading
   - Automatically disappears when content loads
 
 Security Features:
@@ -512,11 +511,12 @@ Security Features:
   - Prevents access to local/internal addresses
   - Limits redirect chains to prevent loops
   - Sanitizes input to prevent formatting code injection
+  - Size protection limits image downloads to 5MB
 
 Content Processing:
   - Extracts main content and removes ads/navigation
   - Preserves basic formatting and structure
-  - Identifies and numbers all links automatically
+  - Identifies and presents all visible links in modal list
   - Supports multiple character encodings (UTF-8, Latin-1, etc.)
 
 Accessibility Features:
