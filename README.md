@@ -58,6 +58,7 @@ go build
 | `Enter` | Follow the selected link |
 | `?` | Show help screen |
 | `Tab` | Switch between content view and URL input box |
+| `p` | Paste URL from clipboard (when in URL input field) |
 
 ### Link Navigation
 - Links are automatically numbered in the text (e.g., `click here [1]`)
@@ -71,10 +72,17 @@ go build
 - Use mouse wheel for vertical scrolling (if enabled)
 - Content automatically scrolls to the top when a new page loads
 
+### Clipboard Support
+- Press `p` when in the URL input field to paste content from clipboard
+- Pasted URLs will replace current text in the input field
+- Use arrow keys to navigate long pasted URLs if needed
+
 ### URL Input
 - Type URLs in the input box at the bottom
 - Press `Tab` to switch from content view to the URL input
 - Press `Tab` again to switch back from URL input to content view
+- For long URLs: use ← and → arrow keys to navigate within the input field
+- The input field shows a portion of long URLs; use arrow keys to see more content
 - Press `Enter` to navigate to the URL
 
 ### Search Functionality

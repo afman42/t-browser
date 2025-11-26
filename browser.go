@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"golang.org/x/net/html"
@@ -177,10 +178,20 @@ func (b *Browser) createUI() {
 			b.app.SetFocus(b.textView)
 		}
 	})
-	// Capture tab to switch back to content view
+	// Capture tab to switch back to content view and enhance text input handling
 	b.urlInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyTAB {
 			b.app.SetFocus(b.textView)
+			return nil // Consume the event
+		}
+		// Handle 'p' key to paste from clipboard
+		if event.Key() == tcell.KeyRune && event.Rune() == 'p' {
+			// Get text from clipboard
+			clipText, err := clipboard.ReadAll()
+			if err == nil {
+				// Set the clipboard content to the input field
+				b.urlInput.SetText(clipText)
+			}
 			return nil // Consume the event
 		}
 		return event
@@ -411,6 +422,11 @@ URL Input:
   - Type URL in the bottom input box and press Enter
   - Automatically adds 'https://' if no protocol specified
   - Press Tab to return to content view
+  - For long URLs: use ← and → arrow keys to navigate within the input field
+  - The input field shows a portion of long URLs; use arrow keys to see more
+
+Clipboard:
+  - Press 'p' when in URL input field to paste URL from clipboard
 
 Link Navigation:
   - Links appear in content as "text [n]"
