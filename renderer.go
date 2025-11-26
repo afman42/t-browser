@@ -71,14 +71,19 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 
 	// Add title if available
 	if article.Title != "" {
-		result.WriteString(fmt.Sprintf("[::b]%s[::-]\n", article.Title))
+		// Sanitize the title to prevent formatting code injection
+		sanitizedTitle := b.sanitizeForTview(article.Title)
+		result.WriteString(fmt.Sprintf("[::b]%s[::-]\n", sanitizedTitle))
 	}
 
 	// Clean up the extracted content to remove excessive whitespace
 	cleanedContent := cleanExcessiveWhitespace(article.TextContent)
 
+	// Sanitize the content to prevent formatting code injection
+	sanitizedContent := b.sanitizeForTview(cleanedContent)
+
 	// Process content to embed link numbers directly in the text
-	processedContent := b.embedLinkNumbers(cleanedContent, links)
+	processedContent := b.embedLinkNumbers(sanitizedContent, links)
 
 	// Add the processed content
 	result.WriteString(processedContent)
@@ -169,76 +174,82 @@ func cleanExcessiveWhitespace(text string) string {
 	return result
 }
 
-// embedLinkNumbers embeds link numbers directly in the content
+// embedLinkNumbers embeds link numbers directly in the content using a better algorithm
+// This approach tries to match links based on their position and context to avoid misnumbering
 func (b *Browser) embedLinkNumbers(content string, links []Link) string {
-	processed := content
-
-	// For each link, find its text in the content and add the link number
-	// To avoid double numbering, process each link separately and mark them
-	for i, link := range links {
-		// Create a placeholder to temporarily mark this link's occurrences
-		// We'll look for the original link text not followed by numbers in brackets
-		// Use string scanning to process occurrences one by one
-		processed = b.addLinkNumberSafely(processed, link.Text, i+1)
+	if len(links) == 0 {
+		return content
 	}
 
-	return processed
-}
-
-// addLinkNumberSafely adds a number to a link text without double numbering
-func (b *Browser) addLinkNumberSafely(content, linkText string, linkNumber int) string {
-	// Use a counter to only number the first N occurrences if we have N links
-	// This prevents numbering other instances of the same text that aren't actual links
 	result := content
-	count := 0
-	targetCount := 1 // For now, just replace the first occurrence we expect to be a link
 
-	startIdx := 0
-	for startIdx < len(result) && count < targetCount {
-		pos := strings.Index(result[startIdx:], linkText)
-		if pos == -1 {
-			break
-		}
+	// Create a mapping of link text to all its occurrences and corresponding link numbers
+	// Use a more robust approach that considers link context
+	usedPositions := make(map[int]bool) // Track positions already numbered
 
-		actualPos := startIdx + pos
-		endPos := actualPos + len(linkText)
+	for i, link := range links {
+		linkNumber := i + 1
 
-		// Check if this occurrence is already numbered
-		alreadyNumbered := false
-		if endPos < len(result) {
-			remainder := result[endPos:]
-			if len(remainder) >= 1 && remainder[0] == ' ' && len(remainder) > 1 {
-				nextPart := remainder[1:]
-				if len(nextPart) >= 3 && nextPart[0] == '[' {
-					// Find the closing bracket
-					closeBracket := strings.IndexRune(nextPart, ']')
-					if closeBracket != -1 {
-						insideBrackets := nextPart[1:closeBracket]
-						// Check if it's a number
-						isNumber := true
-						for _, r := range insideBrackets {
-							if r < '0' || r > '9' {
-								isNumber = false
-								break
+		// Find the next unused occurrence of the link text
+		// Start searching from beginning of content
+		startIdx := 0
+		found := false
+
+		for startIdx < len(result) && !found {
+			pos := strings.Index(result[startIdx:], link.Text)
+			if pos == -1 {
+				break // No more occurrences found
+			}
+
+			actualPos := startIdx + pos
+
+			// Check if this position is already used for numbering
+			if usedPositions[actualPos] {
+				startIdx = actualPos + 1
+				continue
+			}
+
+			// Check if this occurrence is already numbered
+			endPos := actualPos + len(link.Text)
+			alreadyNumbered := false
+
+			if endPos < len(result) {
+				remainder := result[endPos:]
+				if len(remainder) >= 1 && remainder[0] == ' ' && len(remainder) > 1 {
+					nextPart := remainder[1:]
+					if len(nextPart) >= 3 && nextPart[0] == '[' {
+						// Find the closing bracket
+						closeBracket := strings.IndexRune(nextPart, ']')
+						if closeBracket != -1 {
+							insideBrackets := nextPart[1:closeBracket]
+							// Check if it's a number
+							isNumber := true
+							for _, r := range insideBrackets {
+								if r < '0' || r > '9' {
+									isNumber = false
+									break
+								}
 							}
-						}
-						if isNumber {
-							alreadyNumbered = true
+							if isNumber {
+								alreadyNumbered = true
+							}
 						}
 					}
 				}
 			}
-		}
 
-		if !alreadyNumbered {
-			// Replace this occurrence
-			before := result[:actualPos]
-			after := result[endPos:]
-			result = before + fmt.Sprintf("%s [%d]", linkText, linkNumber) + after
-			count++
-			startIdx = actualPos + len(fmt.Sprintf("%s [%d]", linkText, linkNumber))
-		} else {
-			startIdx = endPos
+			if !alreadyNumbered {
+				// Replace this occurrence with the link number
+				before := result[:actualPos]
+				after := result[endPos:]
+				result = before + fmt.Sprintf("%s [%d]", link.Text, linkNumber) + after
+
+				// Mark this position as used
+				usedPositions[actualPos] = true
+				found = true
+			} else {
+				startIdx = actualPos + 1
+			}
 		}
 	}
 
@@ -391,4 +402,18 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			}
 		}
 	}
+}
+
+// sanitizeForTview sanitizes text to prevent tview formatting code injection
+func (b *Browser) sanitizeForTview(text string) string {
+	// Escape square brackets which are used for tview formatting
+	result := strings.ReplaceAll(text, "[", "\\[")
+	result = strings.ReplaceAll(result, "]", "\\]")
+
+	// Additional formatting characters that might be relevant
+	result = strings.ReplaceAll(result, "*", "\\*")
+	result = strings.ReplaceAll(result, "_", "\\_")
+	result = strings.ReplaceAll(result, "`", "\\`")
+
+	return result
 }

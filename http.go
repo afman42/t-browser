@@ -17,10 +17,11 @@ import (
 
 // HTTPClient handles HTTP requests with proper headers, cookies, and encoding
 type HTTPClient struct {
-	client  *http.Client
-	cookies map[string]*Cookie
-	forceUA string
-	proxy   *url.URL
+	client       *http.Client
+	cookies      map[string]*Cookie
+	forceUA      string
+	proxy        *url.URL
+	maxRedirects int
 }
 
 // Cookie represents an HTTP cookie
@@ -44,8 +45,9 @@ func NewHTTPClient() *HTTPClient {
 			Transport: transport,
 			Timeout:   30 * time.Second,
 		},
-		cookies: make(map[string]*Cookie),
-		forceUA: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		cookies:      make(map[string]*Cookie),
+		forceUA:      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		maxRedirects: 10, // Limit redirects to prevent infinite loops
 	}
 
 	return client
@@ -58,8 +60,13 @@ func (c *HTTPClient) SetProxy(proxy *url.URL) {
 	}
 }
 
-// FetchPage fetches the page content from the given URL
-func (c *HTTPClient) FetchPage(rawURL string) (string, error) {
+// fetchPageWithRedirectLimit fetches the page content with a redirect limit
+func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int) (string, error) {
+	// Check redirect limit
+	if redirectCount > c.maxRedirects {
+		return "", fmt.Errorf("maximum redirect limit (%d) exceeded", c.maxRedirects)
+	}
+
 	// Parse the URL
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
@@ -109,13 +116,18 @@ func (c *HTTPClient) FetchPage(rawURL string) (string, error) {
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		location := resp.Header.Get("Location")
 		if location != "" {
+			// Validate redirect location to prevent open redirects
+			if !isValidRedirectLocation(location, parsedURL) {
+				return "", fmt.Errorf("invalid redirect location: %s", location)
+			}
+
 			// Create absolute URL if location is relative
 			if strings.HasPrefix(location, "/") {
 				location = fmt.Sprintf("%s://%s%s", parsedURL.Scheme, parsedURL.Host, location)
 			} else if !strings.HasPrefix(location, "http") {
 				location = fmt.Sprintf("%s://%s/%s", parsedURL.Scheme, parsedURL.Host, location)
 			}
-			return c.FetchPage(location)
+			return c.fetchPageWithRedirectLimit(location, redirectCount+1)
 		}
 	}
 
@@ -170,7 +182,7 @@ func (c *HTTPClient) FetchPage(rawURL string) (string, error) {
 	}
 
 	// If encoding is not UTF-8, try to convert it
-	if strings.Contains(strings.ToLower(encodingName), "iso-8859") || 
+	if strings.Contains(strings.ToLower(encodingName), "iso-8859") ||
 	   strings.Contains(strings.ToLower(encodingName), "latin") {
 		enc := charmap.ISO8859_1
 		if strings.Contains(strings.ToLower(encodingName), "iso-8859-2") {
@@ -194,4 +206,26 @@ func (c *HTTPClient) FetchPage(rawURL string) (string, error) {
 	}
 
 	return string(body), nil
+}
+
+// FetchPage fetches the page content from the given URL
+func (c *HTTPClient) FetchPage(rawURL string) (string, error) {
+	return c.fetchPageWithRedirectLimit(rawURL, 0)
+}
+
+// isValidRedirectLocation checks if the redirect location is safe and valid
+func isValidRedirectLocation(location string, originalURL *url.URL) bool {
+	// Check if location is a full URL
+	if strings.HasPrefix(location, "http://") || strings.HasPrefix(location, "https://") {
+		redirectURL, err := url.Parse(location)
+		if err != nil {
+			return false
+		}
+		// Only allow redirects to the same host or subdomains
+		// This prevents open redirect vulnerabilities
+		return strings.HasSuffix(redirectURL.Host, originalURL.Host) || redirectURL.Host == originalURL.Host
+	}
+
+	// For relative redirects (starting with / or #), they are safe
+	return strings.HasPrefix(location, "/") || strings.HasPrefix(location, "#") || strings.HasPrefix(location, "?")
 }

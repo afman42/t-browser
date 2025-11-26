@@ -183,6 +183,13 @@ func (b *Browser) updateTitleBar(linkIndex int) {
 
 // NavigateTo navigates to the specified URL
 func (b *Browser) NavigateTo(url string) {
+	// Validate the URL before processing
+	validatedURL, err := b.validateAndSanitizeURL(url)
+	if err != nil {
+		b.displayError(fmt.Sprintf("Invalid URL: %v", err))
+		return
+	}
+
 	// Add to history
 	if b.currentURL != "" && (len(b.history) == 0 || b.history[len(b.history)-1] != b.currentURL) {
 		b.history = append(b.history, b.currentURL)
@@ -190,7 +197,7 @@ func (b *Browser) NavigateTo(url string) {
 	}
 
 	// Fetch the page
-	content, err := b.client.FetchPage(url)
+	content, err := b.client.FetchPage(validatedURL)
 	if err != nil {
 		b.displayError(fmt.Sprintf("Error fetching page: %v", err))
 		return
@@ -396,4 +403,47 @@ func (b *Browser) getListItemIndex(node *html.Node) int {
 	}
 	
 	return index
+}
+
+// validateAndSanitizeURL validates and sanitizes the input URL
+func (b *Browser) validateAndSanitizeURL(inputURL string) (string, error) {
+	// Basic validation to check for potentially malicious schemes
+	if strings.HasPrefix(inputURL, "javascript:") || strings.HasPrefix(inputURL, "data:") ||
+	   strings.HasPrefix(inputURL, "vbscript:") || strings.HasPrefix(inputURL, "file:") {
+		return "", fmt.Errorf("unsupported or dangerous URL scheme")
+	}
+
+	// Check if the URL is empty
+	if strings.TrimSpace(inputURL) == "" {
+		return "", fmt.Errorf("URL cannot be empty")
+	}
+
+	// Check for excessive length to prevent potential buffer overflow
+	if len(inputURL) > 2048 {
+		return "", fmt.Errorf("URL is too long")
+	}
+
+	// Parse the URL to validate its structure
+	parsedURL, err := url.Parse(inputURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL format: %v", err)
+	}
+
+	// Validate the host to ensure it's not pointing to internal addresses
+	host := parsedURL.Hostname()
+	if host == "localhost" || strings.HasPrefix(host, "127.") ||
+	   strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") ||
+	   (strings.HasPrefix(host, "172.") && len(host) > 4 &&
+	    host[4] >= '1' && host[4] <= '3' && host[5] == '.') {
+		// Allow these only if explicitly enabled, for security
+		return "", fmt.Errorf("access to local/internal addresses not allowed")
+	}
+
+	// Check for suspicious patterns in the URL
+	if strings.Contains(inputURL, "..") || strings.Contains(inputURL, "0x00") {
+		return "", fmt.Errorf("URL contains suspicious patterns")
+	}
+
+	// Return the validated URL
+	return inputURL, nil
 }
