@@ -86,8 +86,10 @@ func (b *Browser) Run() error {
 		AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
 		AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
 
-	// Start the application with the flex layout
-	if err := b.app.SetRoot(flex, true).EnableMouse(true).Run(); err != nil {
+	// Start the application with the flex layout and ensure content view has focus
+	b.app.SetRoot(flex, true)
+	b.app.SetFocus(b.textView)
+	if err := b.app.EnableMouse(true).Run(); err != nil {
 		return err
 	}
 	return nil
@@ -393,6 +395,7 @@ Press any key to close this help.`
 			AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
 
 		b.app.SetRoot(flex, true)
+		b.app.SetFocus(b.textView)  // Ensure content view has focus after help
 	})
 
 	// Set the help view as root
@@ -582,4 +585,7 @@ func (b *Browser) hideLoadingIndicator() {
 		AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
 
 	b.app.SetRoot(flex, true)
+
+	// Ensure focus goes back to the main content after loading
+	b.app.SetFocus(b.textView)
 }

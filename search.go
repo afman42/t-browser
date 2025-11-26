@@ -24,6 +24,7 @@ func (b *Browser) startSearch() {
 					AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
 
 				b.app.SetRoot(flex, true)
+				b.app.SetFocus(b.textView)  // Ensure content view has focus after search
 			}
 		})
 
