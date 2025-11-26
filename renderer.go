@@ -105,6 +105,10 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 
 	// Set the content to the text view and store original content
 	originalText := result.String()
+
+	// Dynamically adjust word wrap based on content characteristics
+	b.updateWordWrapBasedOnContent(originalText)
+
 	b.originalContent = originalText
 	b.textView.SetText(originalText)
 	b.textView.ScrollToBeginning()
@@ -141,6 +145,10 @@ func (b *Browser) renderPageWithReadabilityContent(article readability.Article) 
 
 	// Set the content to the text view and store original content
 	b.originalContent = processedContent
+
+	// Dynamically adjust word wrap based on content characteristics
+	b.updateWordWrapBasedOnContent(processedContent)
+
 	b.textView.SetText(processedContent)
 	b.textView.ScrollToBeginning()
 }
@@ -308,6 +316,10 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 
 	// Set the content to the text view and store original content
 	originalText := result.String()
+
+	// Dynamically adjust word wrap based on content characteristics
+	b.updateWordWrapBasedOnContent(originalText)
+
 	b.originalContent = originalText
 	b.textView.SetText(originalText)
 	b.textView.ScrollToBeginning()

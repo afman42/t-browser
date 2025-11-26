@@ -66,6 +66,11 @@ go build
 - Press `Enter` to visit the selected link
 - Current link URL is shown in the title bar
 
+### Content Navigation
+- Long lines are not wrapped, adjust your terminal width for optimal viewing
+- Use mouse wheel for vertical scrolling (if enabled)
+- Content automatically scrolls to the top when a new page loads
+
 ### URL Input
 - Type URLs in the input box at the bottom
 - Press `Tab` to switch from content view to the URL input

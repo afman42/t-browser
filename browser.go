@@ -189,6 +189,46 @@ func (b *Browser) createUI() {
 	// Layout is set in the Run function
 }
 
+// shouldDisableWordWrap analyzes the content to decide if word wrap should be disabled
+// Returns true if the content has very long lines that would benefit from disabling word wrap
+func (b *Browser) shouldDisableWordWrap(content string) bool {
+	lines := strings.Split(content, "\n")
+
+	// Check if there are many long lines
+	longLineCount := 0
+	totalLines := len(lines)
+
+	for _, line := range lines {
+		// If line is significantly longer than common terminal width (80+ chars)
+		if len(line) > 120 {
+			longLineCount++
+		}
+	}
+
+	// If more than 20% of lines are very long, disable word wrap for performance
+	if totalLines > 0 && float64(longLineCount)/float64(totalLines) > 0.2 {
+		return true
+	}
+
+	// Additional check: if there are any extremely long lines (>500 chars)
+	for _, line := range lines {
+		if len(line) > 500 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// updateWordWrapBasedOnContent dynamically sets word wrap based on content characteristics
+func (b *Browser) updateWordWrapBasedOnContent(content string) {
+	shouldDisableWrap := b.shouldDisableWordWrap(content)
+
+	// Only update if the setting has changed to avoid unnecessary UI updates
+	needsWrap := !shouldDisableWrap
+	b.textView.SetWordWrap(needsWrap)
+}
+
 // updateTitleBar updates the title bar with the current link's URL
 func (b *Browser) updateTitleBar(linkIndex int) {
 	baseTitle := "Terminal Browser - Press Ctrl+C to quit, / for search"
