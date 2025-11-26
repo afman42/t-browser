@@ -33,15 +33,18 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 
 	// Add title if available
 	if article.Title != "" {
-		result.WriteString(fmt.Sprintf("[::b]%s[::-]\n\n", article.Title))
+		result.WriteString(fmt.Sprintf("[::b]%s[::-]\n", article.Title))
 	}
 
-	// Add the extracted content
-	result.WriteString(article.TextContent)
+	// Clean up the extracted content to remove excessive whitespace
+	cleanedContent := cleanExcessiveWhitespace(article.TextContent)
+
+	// Add the cleaned extracted content
+	result.WriteString(cleanedContent)
 
 	// Add image if available
 	if article.Image != "" {
-		result.WriteString(fmt.Sprintf("\n\n[Image: %s]", article.Image))
+		result.WriteString(fmt.Sprintf("\n[Image: %s]", article.Image))
 	}
 
 	// Set the content to the text view and store original content
@@ -49,6 +52,35 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	b.originalContent = originalText
 	b.textView.SetText(originalText)
 	b.textView.ScrollToBeginning()
+}
+
+// cleanExcessiveWhitespace removes excessive empty lines and normalizes spacing
+func cleanExcessiveWhitespace(text string) string {
+	// Split the text into lines
+	lines := strings.Split(text, "\n")
+
+	var cleanedLines []string
+	previousWasEmpty := false
+
+	for _, line := range lines {
+		isEmpty := strings.TrimSpace(line) == ""
+
+		// Skip consecutive empty lines
+		if isEmpty && previousWasEmpty {
+			continue
+		}
+
+		cleanedLines = append(cleanedLines, line)
+		previousWasEmpty = isEmpty
+	}
+
+	// Join the lines back together
+	result := strings.Join(cleanedLines, "\n")
+
+	// Additional cleanup: remove multiple consecutive newlines in the content
+	result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+
+	return result
 }
 
 // renderPageFallback renders HTML content using the original method when readability fails
@@ -83,7 +115,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 		if text != "" {
 			// Add indentation
 			for i := 0; i < *tabs; i++ {
-				result.WriteString("  ")
+				result.WriteString(" ")
 			}
 			// Escape special characters that might interfere with tview formatting
 			text = strings.ReplaceAll(text, "[", "\\[")
@@ -92,53 +124,50 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			text = strings.ReplaceAll(text, "_", "\\_")
 			text = strings.ReplaceAll(text, "`", "\\`")
 			result.WriteString(text)
-			result.WriteString("\n")
 		}
 	case html.ElementNode:
 		tag := node.DataAtom.String()
 		isBlockElement := b.isBlockElement(tag)
-		
-		if isBlockElement {
-			result.WriteString("\n")
-		}
-		
+
 		// Handle special tags
 		switch tag {
 		case "h1", "h2", "h3", "h4", "h5", "h6":
-			// Add header formatting
-			for i := 0; i < *tabs; i++ {
-				result.WriteString("  ")
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
 			}
-			result.WriteString("### ") // Simple header marking
+			result.WriteString("## ")
 			*tabs += 1
 		case "p":
-			result.WriteString("\n")
-			for i := 0; i < *tabs; i++ {
-				result.WriteString("  ")
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
 			}
 		case "a":
-			// Add link highlighting
-			if _, exists := b.getAttribute(node, "href"); exists {
-				// Just process the content without special formatting
-			}
+			// Just process the content without special formatting for now
+			break
 		case "ul", "ol":
 			*tabs += 1
 		case "li":
-			result.WriteString("\n")
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
 			for i := 0; i < *tabs-1; i++ {
-				result.WriteString("  ")
+				result.WriteString(" ")
 			}
 			if b.isParent(node, "ol") {
 				// Handle ordered list
 				index := b.getListItemIndex(node)
 				result.WriteString(fmt.Sprintf("%d. ", index))
 			} else {
-				result.WriteString("• ")
+				result.WriteString("* ")
 			}
 		case "br":
 			result.WriteString("\n")
 		case "div":
-			if isBlockElement {
+			if isBlockElement && result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
+		case "pre", "code":
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
 		}
@@ -152,6 +181,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 		switch tag {
 		case "h1", "h2", "h3", "h4", "h5", "h6":
 			*tabs -= 1
+			result.WriteString("\n")
 		case "a":
 			if href, exists := b.getAttribute(node, "href"); exists {
 				result.WriteString(fmt.Sprintf(" (%s)", href))
@@ -160,8 +190,10 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			*tabs -= 1
 		}
 
-		if isBlockElement && tag != "li" {
-			result.WriteString("\n")
+		if isBlockElement && tag != "li" && tag != "h1" && tag != "h2" && tag != "h3" && tag != "h4" && tag != "h5" && tag != "h6" {
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
 		}
 	}
 }
