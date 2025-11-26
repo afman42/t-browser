@@ -1,0 +1,57 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install UPX (Compress file)
+        run: |
+          sudo apt update
+          sudo apt install -y upx-ucl
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: [1.24]
+          cache: true
+
+      - name: Get dependencies
+        run: go mod tidy
+
+      - name: Build for Linux (amd64)
+        run: |
+          env GOOS=linux GOARCH=amd64 go build -o ./bin/tmp/t-browser-linux-amd64
+        working-directory: .
+
+      - name: Build for Windows (amd64)
+        run: |
+          env GOOS=windows GOARCH=amd64 go build -o ./bin/tmp/t-browser-windows-amd64.exe
+        working-directory: .
+
+      - name: Build for Linux (amd64)
+        run: |
+          upx ./bin/tmp/t-browser-linux-amd64 -o ./bin/t-browser-linux-amd64
+
+      - name: Build for Windows (amd64)
+        run: |
+          upx ./bin/tmp/t-browser-windows-amd64.exe -o ./bin/t-browser-windows-amd64.exe
+        working-directory: .
+
+      - name: Upload Artifacts (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: t-browser-linux-amd64
+          path: ./bin/t-browser-linux-amd64
+
+      - name: Upload Artifacts (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: t-browser-windows-amd64
+          path: ./bin/t-browser-windows-amd64.exe
