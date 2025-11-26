@@ -130,6 +130,9 @@ func (b *Browser) createUI() {
 				b.selectPreviousLink()
 				b.updateTitleBar(b.currentLinkIndex) // Update title bar with current link
 				return nil
+			case '?': // Show help/usage information
+				b.showHelp()
+				return nil
 			}
 		}
 
@@ -291,6 +294,54 @@ func (b *Browser) renderPageWithHighlightedLink() {
 
 	// Update the title bar with current link info
 	b.updateTitleBar(b.currentLinkIndex)
+}
+
+// showHelp displays help and usage information
+func (b *Browser) showHelp() {
+	helpText := `Terminal Browser - Help & Usage
+
+Navigation:
+  j     - Move to next link
+  k     - Move to previous link
+  Enter - Follow current highlighted link
+  b     - Go back in history
+  f     - Go forward in history
+
+Search:
+  /     - Real-time search with match highlighting
+
+Other:
+  ?     - Show this help information
+  q     - Quit browser
+  Ctrl+C - Quit browser
+
+Link Navigation:
+  - Links appear in content as "text [n]"
+  - Current link number is highlighted in blue
+  - URL of current link shown in title bar
+
+Accessibility Features:
+  - Keyboard navigation only
+  - Clear visual indicators
+  - High contrast highlighting
+  - Readable text formatting
+
+Press any key to close this help.`
+
+	// Create a modal help view
+	helpView := tview.NewTextView()
+	helpView.SetTextColor(tcell.ColorWhite)
+	helpView.SetBackgroundColor(tcell.ColorNavy)
+	helpView.SetDynamicColors(true)
+	helpView.SetRegions(false)
+	helpView.SetText(helpText)
+	helpView.SetDoneFunc(func(key tcell.Key) {
+		// Close help when any key is pressed
+		b.app.SetRoot(b.textView, true)
+	})
+
+	// Set the help view as root
+	b.app.SetRoot(helpView, true)
 }
 
 // isBlockElement checks if the tag is a block-level element
