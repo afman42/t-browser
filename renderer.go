@@ -88,17 +88,8 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	// Filter links to only those that appear in the readability content
 	visibleLinks := b.extractVisibleLinks(sanitizedContent, allLinks)
 
-	// Process content to embed link numbers directly in the text
-	processedContent := b.embedLinkNumbers(sanitizedContent, visibleLinks)
-
-	// Add the processed content
-	result.WriteString(processedContent)
-
-	// Store links for navigation
-	if len(visibleLinks) > 0 {
-		// Add a separator before showing navigation info
-		result.WriteString("\n\n[yellow]Use 'j'/'k' to navigate links[-]\n")
-	}
+	// Add the sanitized content without link numbers
+	result.WriteString(sanitizedContent)
 
 	// Add image if available
 	if article.Image != "" {
@@ -142,13 +133,7 @@ func (b *Browser) renderPageWithReadabilityContent(article readability.Article) 
 		result.WriteString(fmt.Sprintf("\n[Image: %s]", article.Image))
 	}
 
-	// Process content to embed link numbers directly in the text for fallback
-	processedContent := b.originalContent
-	if len(b.links) > 0 {
-		processedContent = b.embedLinkNumbers(b.originalContent, b.links)
-		// Add a separator before showing navigation info
-		processedContent += "\n\n[yellow]Use 'j'/'k' to navigate links[-]\n"
-	}
+	processedContent := result.String()
 
 	// Set the content to the text view and store original content
 	b.originalContent = processedContent
@@ -279,87 +264,6 @@ func (b *Browser) extractImagesFromHTML(htmlContent string, baseURL *url.URL) []
 	return images
 }
 
-// embedLinkNumbers embeds link numbers directly in the content using a better algorithm
-// This approach tries to match links based on their position and context to avoid misnumbering
-func (b *Browser) embedLinkNumbers(content string, links []Link) string {
-	if len(links) == 0 {
-		return content
-	}
-
-	result := content
-
-	// Create a mapping of link text to all its occurrences and corresponding link numbers
-	// Use a more robust approach that considers link context
-	usedPositions := make(map[int]bool) // Track positions already numbered
-
-	for i, link := range links {
-		linkNumber := i + 1
-
-		// Find the next unused occurrence of the link text
-		// Start searching from beginning of content
-		startIdx := 0
-		found := false
-
-		for startIdx < len(result) && !found {
-			pos := strings.Index(result[startIdx:], link.Text)
-			if pos == -1 {
-				break // No more occurrences found
-			}
-
-			actualPos := startIdx + pos
-
-			// Check if this position is already used for numbering
-			if usedPositions[actualPos] {
-				startIdx = actualPos + 1
-				continue
-			}
-
-			// Check if this occurrence is already numbered
-			endPos := actualPos + len(link.Text)
-			alreadyNumbered := false
-
-			if endPos < len(result) {
-				remainder := result[endPos:]
-				if len(remainder) >= 1 && remainder[0] == ' ' && len(remainder) > 1 {
-					nextPart := remainder[1:]
-					if len(nextPart) >= 3 && nextPart[0] == '[' {
-						// Find the closing bracket
-						closeBracket := strings.IndexRune(nextPart, ']')
-						if closeBracket != -1 {
-							insideBrackets := nextPart[1:closeBracket]
-							// Check if it's a number
-							isNumber := true
-							for _, r := range insideBrackets {
-								if r < '0' || r > '9' {
-									isNumber = false
-									break
-								}
-							}
-							if isNumber {
-								alreadyNumbered = true
-							}
-						}
-					}
-				}
-			}
-
-			if !alreadyNumbered {
-				// Replace this occurrence with the link number
-				before := result[:actualPos]
-				after := result[endPos:]
-				result = before + fmt.Sprintf("%s [%d]", link.Text, linkNumber) + after
-
-				// Mark this position as used
-				usedPositions[actualPos] = true
-				found = true
-			} else {
-				startIdx = actualPos + 1
-			}
-		}
-	}
-
-	return result
-}
 
 // renderPageFallback renders HTML content using the original method when readability fails
 func (b *Browser) renderPageFallback(htmlContent string) {
@@ -416,13 +320,12 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 	// Filter links to only those that appear in the rendered content
 	visibleLinks := b.extractVisibleLinks(rawContent, links)
 
-	// Process content to embed link numbers directly in the text
-	processedContent := b.embedLinkNumbers(rawContent, visibleLinks)
-
-	// Store the links and images in browser
+	// Store the links and images in browser (content without link numbers)
 	b.links = visibleLinks
 	b.images = images
 	b.currentLinkIndex = -1 // Start with no link selected
+
+	processedContent := rawContent
 
 	// Dynamically adjust word wrap based on content characteristics
 	b.updateWordWrapBasedOnContent(processedContent)
