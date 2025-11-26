@@ -12,6 +12,13 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
+// Link represents a hyperlink on the page
+type Link struct {
+	URL  string
+	Text string
+	Position int // Position in content for navigation
+}
+
 // Browser represents the terminal browser instance
 type Browser struct {
 	app             *tview.Application
@@ -25,6 +32,8 @@ type Browser struct {
 	currentURL      string
 	searchTerm      string
 	originalContent string // Store original content for search
+	links           []Link  // Store links found on the page
+	currentLinkIndex int   // Index of currently highlighted link
 	forceUA         string
 }
 
@@ -91,9 +100,12 @@ func (b *Browser) createUI() {
 			b.app.Stop()
 			return nil
 		case tcell.KeyEnter:
-			// Handle link selection
-			if link := b.getCurrentLink(); link != "" {
-				b.NavigateTo(link)
+			// Follow the currently highlighted link
+			if b.currentLinkIndex >= 0 && b.currentLinkIndex < len(b.links) {
+				b.NavigateTo(b.links[b.currentLinkIndex].URL)
+				b.currentLinkIndex = -1 // Reset highlight
+				b.updateTitleBar(-1) // Clear current link from title
+				b.renderPageWithHighlightedLink() // Re-render without highlight
 			}
 			return nil
 		case tcell.KeyRune:
@@ -109,6 +121,14 @@ func (b *Browser) createUI() {
 				return nil
 			case '/': // Search
 				b.startSearch()
+				return nil
+			case 'j': // Move to next link
+				b.selectNextLink()
+				b.updateTitleBar(b.currentLinkIndex) // Update title bar with current link
+				return nil
+			case 'k': // Move to previous link
+				b.selectPreviousLink()
+				b.updateTitleBar(b.currentLinkIndex) // Update title bar with current link
 				return nil
 			}
 		}
@@ -133,13 +153,29 @@ func (b *Browser) createUI() {
 		}
 	})
 
-	// Layout
+	// Simple layout with just content and input
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(b.textView, 0, 1, false).
-		AddItem(b.urlInput, 3, 1, false)
+		AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
+		AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
 
 	b.app.SetRoot(flex, true)
+}
+
+// updateTitleBar updates the title bar with the current link's URL
+func (b *Browser) updateTitleBar(linkIndex int) {
+	baseTitle := "Terminal Browser - Press Ctrl+C to quit, / for search"
+
+	if linkIndex >= 0 && linkIndex < len(b.links) {
+		url := b.links[linkIndex].URL
+		// Truncate long URLs to fit in title
+		if len(url) > 50 {
+			url = url[:50] + "..."
+		}
+		b.textView.SetTitle(fmt.Sprintf("%s | Current Link: %s", baseTitle, url))
+	} else {
+		b.textView.SetTitle(baseTitle)
+	}
 }
 
 // NavigateTo navigates to the specified URL
@@ -159,9 +195,14 @@ func (b *Browser) NavigateTo(url string) {
 
 	// Update current URL
 	b.currentURL = url
-	
+
 	// Render the page content
 	b.renderPage(content, url)
+
+	// Clear the title bar when navigating to a new page
+	// The links will be refreshed, so reset current link index
+	b.currentLinkIndex = -1
+	b.updateTitleBar(-1)
 }
 
 // displayError shows an error message in the text view
@@ -187,12 +228,69 @@ func (b *Browser) GoForward() {
 	}
 }
 
-// getCurrentLink gets the currently selected link in the text view
-func (b *Browser) getCurrentLink() string {
-	// This is a simplified implementation
-	// In a real implementation, we'd need to track cursor position and find the corresponding link
-	// For now, we'll return empty string as an indication that we need to improve this
-	return ""
+// selectNextLink moves to the next link in the document
+func (b *Browser) selectNextLink() {
+	if len(b.links) == 0 {
+		return
+	}
+
+	b.currentLinkIndex++
+	if b.currentLinkIndex >= len(b.links) {
+		b.currentLinkIndex = 0 // Wrap around to first link
+	}
+
+	b.renderPageWithHighlightedLink()
+}
+
+// selectPreviousLink moves to the previous link in the document
+func (b *Browser) selectPreviousLink() {
+	if len(b.links) == 0 {
+		return
+	}
+
+	b.currentLinkIndex--
+	if b.currentLinkIndex < 0 {
+		b.currentLinkIndex = len(b.links) - 1 // Wrap around to last link
+	}
+
+	b.renderPageWithHighlightedLink()
+}
+
+// renderPageWithHighlightedLink renders the page with the currently selected link highlighted
+func (b *Browser) renderPageWithHighlightedLink() {
+	originalText := b.originalContent
+
+	// Create a copy of the original text with only the link number highlighted
+	var displayText string
+
+	if b.currentLinkIndex >= 0 && b.currentLinkIndex < len(b.links) && len(b.links) > 0 {
+		currentLinkNumber := b.currentLinkIndex + 1
+		linkText := b.links[b.currentLinkIndex].Text
+
+		// Create the target string to search for: "link text [number]"
+		targetStr := fmt.Sprintf("%s [%d]", linkText, currentLinkNumber)
+
+		// Also handle the case where it might be formatted differently
+		// Replace only the first occurrence to highlight the current link
+		displayText = strings.Replace(originalText, targetStr,
+			fmt.Sprintf("%s [blue][%d][::-]", linkText, currentLinkNumber), 1)
+
+		// If the above replacement didn't work (meaning the format was different),
+		// try a more general replacement for just the number
+		if displayText == originalText {
+			// If no replacement happened, try to just highlight the number [n] wherever it appears
+			linkNumberStr := fmt.Sprintf("[%d]", currentLinkNumber)
+			displayText = strings.Replace(originalText, linkNumberStr,
+				fmt.Sprintf("[blue]%s[::-]", linkNumberStr), 1)
+		}
+	} else {
+		displayText = originalText
+	}
+
+	b.textView.SetText(displayText)
+
+	// Update the title bar with current link info
+	b.updateTitleBar(b.currentLinkIndex)
 }
 
 // isBlockElement checks if the tag is a block-level element
