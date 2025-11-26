@@ -1,96 +1,109 @@
 # Terminal Browser (t-browser)
 
-A simple terminal-based web browser written in Go that allows you to browse websites directly from your terminal.
+A lightweight terminal-based web browser written in Go. Browse websites directly from your command line with minimal resource usage.
 
-## Features
+## ✨ Features
 
-- **Web Browsing**: Fetch and display web pages in the terminal
-- **Text Rendering**: Clean text rendering of HTML content with proper formatting
-- **Navigation**: Back and forward navigation through browsing history
-- **Search**: Real-time search functionality with match highlighting
-- **Content Extraction**: Uses go-readability to extract main content (removes ads, menus, etc.)
-- **Encoding Support**: Handles various text encodings (UTF-8, ISO-8859-1, etc.)
-- **Proxy Support**: Configurable proxy support via environment variables
-- **Cookie Handling**: Basic cookie storage and management
-- **User Agent**: Spoofs user agent to get proper desktop/mobile versions
+- **Browse in Terminal**: View web content directly in your terminal without GUI overhead
+- **Smart Content Extraction**: Strips away ads, menus, and navigation to show main content only
+- **Easy Navigation**: Move through pages with familiar keyboard shortcuts
+- **Link Selection**: Navigate and select links using the keyboard
+- **Real-time Search**: Find and highlight content as you type
+- **Multiple Encodings**: Handles UTF-8, Latin-1, and other character encodings
+- **Proxy Support**: Works with proxy servers for network access
 
-## Installation
+## 🚀 Quick Start
 
-1. Make sure you have Go 1.24+ installed
-2. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/t-browser.git
-   cd t-browser
-   ```
-3. Install dependencies:
-   ```bash
-   go mod tidy
-   ```
-4. Build the project:
-   ```bash
-   go build
-   ```
+### Prerequisites
+- Go 1.19+ installed on your system
 
-## Usage
-
-Run the browser:
+### Installation
 ```bash
-./t-browser [optional-url]
+# Clone the repository
+git clone https://github.com/yourusername/t-browser.git
+cd t-browser
+
+# Install dependencies
+go mod tidy
+
+# Build the executable
+go build
 ```
 
-Or to open a specific website:
+### Usage
 ```bash
+# Launch with default page
+./t-browser
+
+# Open a specific website
 ./t-browser https://example.com
+
+# Open a website (with or without https:// prefix)
+./t-browser example.com
 ```
 
-## Keyboard Controls
+## ⌨️ Keyboard Controls
 
-- `q` or `Ctrl+C`: Quit the browser
-- `/`: Start real-time search
-- `b`: Go back in history
-- `f`: Go forward in history
-- `Enter`: Follow highlighted link (not fully implemented)
+| Key | Action |
+|-----|--------|
+| `q` or `Ctrl+C` | Quit the browser |
+| `/` | Start search mode |
+| `b` | Go back in history |
+| `f` | Go forward in history |
+| `j` | Move to next link |
+| `k` | Move to previous link |
+| `Enter` | Follow the selected link |
+| `?` | Show help screen |
 
-## Search Functionality
+### Link Navigation
+- Links are automatically numbered in the text (e.g., `click here [1]`)
+- Use `j` and `k` to move between links
+- The current link is highlighted in blue
+- Press `Enter` to visit the selected link
 
-The search feature provides real-time search with:
-- Live highlighting of matches in yellow
-- Match count display
-- List of all matching words/phrases at the bottom
-- Case-sensitive searching by default
+### Search Functionality
+- Type in search box to find text in real-time
+- Matching text is highlighted in yellow
+- Shows count of matches found
+- Case-sensitive by default
 
-## Configuration
+## ⚙️ Configuration
 
-- **Proxy**: Set the `PROXY` environment variable to use a proxy server
-  ```bash
-  export PROXY=http://your-proxy:port
-  ./t-browser
-  ```
+### Proxy Setup
+Set a proxy server using environment variables:
 
-## Dependencies
+```bash
+export PROXY=http://your-proxy:port
+./t-browser
+```
 
-This project uses:
-- `github.com/PuerkitoBio/goquery` - For HTML parsing
-- `github.com/go-shiori/go-readability` - For content extraction
-- `github.com/gdamore/tcell/v2` - For terminal UI
-- `github.com/rivo/tview` - For terminal widgets
-- `golang.org/x/net/html` - For HTML processing
-- `golang.org/x/text` - For encoding support
+## 🏗️ How It Works
 
-## How It Works
+1. **Request Processing**: Makes HTTP requests with appropriate headers and user agent
+2. **Content Extraction**: Uses `go-readability` to extract main content while filtering out ads, menus, etc.
+3. **Text Rendering**: Converts HTML to readable plain text with proper formatting
+4. **Terminal UI**: Uses `tview` and `tcell` to create interactive terminal interface
+5. **Link Management**: Identifies and numbers links for easy keyboard navigation
 
-1. **Fetching**: Uses Go's net/http to fetch web pages with proper headers and cookies
-2. **Parsing**: Extracts and cleans HTML content
-3. **Content Extraction**: Uses go-readability to get the main content, filtering out navigation, ads, etc.
-4. **Rendering**: Converts HTML to formatted plain text for terminal display
-5. **UI**: Provides a simple terminal interface for navigation and search
+## 🔧 Dependencies
 
-## Known Limitations
+- `github.com/PuerkitoBio/goquery` - HTML parsing and manipulation
+- `github.com/go-shiori/go-readability` - Content extraction from web pages
+- `github.com/gdamore/tcell/v2` - Terminal interface handling
+- `github.com/rivo/tview` - Terminal widgets and UI components
+- `golang.org/x/net/html` - HTML processing utilities
+- `golang.org/x/text` - Character encoding support
 
-- Complex websites with heavy JavaScript may not render correctly
-- Some CSS styling is lost in the conversion to plain text
-- Link following is limited (work in progress)
+## 📝 Notes
 
-## License
+- **JavaScript**: Since content is rendered as plain text, JavaScript-heavy sites may not display correctly
+- **Visual Elements**: Images and complex layouts are simplified to text format
+- **Performance**: Lightweight and fast, suitable for low-resource environments
 
-This project is available under the MIT License.
+## 🤝 Contributing
+
+Feel free to submit issues and enhancement requests! This project welcomes contributions from the community.
+
+## 📄 License
+
+MIT License - see the [LICENSE](LICENSE) file for details.
