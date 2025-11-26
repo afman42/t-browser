@@ -9,6 +9,9 @@ A lightweight terminal-based web browser written in Go. Browse websites directly
 - **Easy Navigation**: Move through pages with familiar keyboard shortcuts
 - **Link Selection**: Navigate and select links using the keyboard
 - **Real-time Search**: Find and highlight content as you type
+- **Loading Indicators**: Animated progress indicator during page loads
+- **Tab Navigation**: Switch between content view and URL input with Tab key
+- **Security Features**: URL validation, redirect limits, and input sanitization
 - **Multiple Encodings**: Handles UTF-8, Latin-1, and other character encodings
 - **Proxy Support**: Works with proxy servers for network access
 
@@ -54,18 +57,33 @@ go build
 | `k` | Move to previous link |
 | `Enter` | Follow the selected link |
 | `?` | Show help screen |
+| `Tab` | Switch between content view and URL input box |
 
 ### Link Navigation
 - Links are automatically numbered in the text (e.g., `click here [1]`)
 - Use `j` and `k` to move between links
 - The current link is highlighted in blue
 - Press `Enter` to visit the selected link
+- Current link URL is shown in the title bar
+
+### URL Input
+- Type URLs in the input box at the bottom
+- Press `Tab` to switch from content view to the URL input
+- Press `Tab` again to switch back from URL input to content view
+- Press `Enter` to navigate to the URL
 
 ### Search Functionality
-- Type in search box to find text in real-time
+- Press `/` to start search mode
+- Type text to find in real-time
 - Matching text is highlighted in yellow
 - Shows count of matches found
 - Case-sensitive by default
+- Press `Escape` to exit search and return to content
+
+### Loading Indicators
+- When loading content, an animated "Loading..." indicator appears
+- Shows progress during page loading
+- Automatically disappears when content is fully loaded
 
 ## ⚙️ Configuration
 
@@ -77,6 +95,14 @@ export PROXY=http://your-proxy:port
 ./t-browser
 ```
 
+## 🔐 Security Features
+
+- **URL Validation**: Blocks dangerous schemes like `javascript:`, `data:`, etc.
+- **Redirect Limits**: Prevents infinite redirect loops (max 10 redirects)
+- **Local Address Blocking**: Prevents access to internal/local addresses
+- **Input Sanitization**: Escapes formatting codes to prevent injection attacks
+- **Content Security**: Sanitizes web content to prevent formatting code injection
+
 ## 🏗️ How It Works
 
 1. **Request Processing**: Makes HTTP requests with appropriate headers and user agent
@@ -84,6 +110,8 @@ export PROXY=http://your-proxy:port
 3. **Text Rendering**: Converts HTML to readable plain text with proper formatting
 4. **Terminal UI**: Uses `tview` and `tcell` to create interactive terminal interface
 5. **Link Management**: Identifies and numbers links for easy keyboard navigation
+6. **Loading Indicators**: Shows animated progress during page loads
+7. **Focus Management**: Properly handles focus switching between UI components
 
 ## 🔧 Dependencies
 
@@ -99,6 +127,7 @@ export PROXY=http://your-proxy:port
 - **JavaScript**: Since content is rendered as plain text, JavaScript-heavy sites may not display correctly
 - **Visual Elements**: Images and complex layouts are simplified to text format
 - **Performance**: Lightweight and fast, suitable for low-resource environments
+- **Navigation**: Full keyboard-based navigation with intuitive shortcuts
 
 ## 🤝 Contributing
 
