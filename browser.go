@@ -200,13 +200,8 @@ func (b *Browser) createUI() {
 			b.app.Stop()
 			return nil
 		case tcell.KeyEnter:
-			// Follow the currently highlighted link
-			if b.currentLinkIndex >= 0 && b.currentLinkIndex < len(b.links) {
-				b.NavigateTo(b.links[b.currentLinkIndex].URL)
-				b.currentLinkIndex = -1 // Reset highlight
-				b.updateTitleBar(-1) // Clear current link from title
-				b.renderPageWithHighlightedLink() // Re-render without highlight
-			}
+			// For now, Enter doesn't follow links directly in content
+			// Users should use the 'l' key to see the modal list of links
 			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
@@ -222,13 +217,36 @@ func (b *Browser) createUI() {
 			case '/': // Search
 				b.startSearch()
 				return nil
-			case 'j': // Move to next link
-				b.selectNextLink()
-				b.updateTitleBar(b.currentLinkIndex) // Update title bar with current link
+			case 'j': // Scroll down OR navigate to next link if modal is open
+				// For scrolling content, just scroll down by 10 lines
+				currentRow, _ := b.textView.GetScrollOffset()
+				b.textView.ScrollTo(currentRow + 10, 0)
 				return nil
-			case 'k': // Move to previous link
-				b.selectPreviousLink()
-				b.updateTitleBar(b.currentLinkIndex) // Update title bar with current link
+			case 'k': // Scroll up OR navigate to previous link if modal is open
+				// For scrolling content, just scroll up by 10 lines (with minimum of 0)
+				currentRow, _ := b.textView.GetScrollOffset()
+				newRow := currentRow - 10
+				if newRow < 0 {
+					newRow = 0
+				}
+				b.textView.ScrollTo(newRow, 0)
+				return nil
+			case 'l': // Show list of all links in a modal
+				if len(b.links) > 0 {
+					b.showLinksModal()
+				}
+				return nil
+			case 'J': // Alternative: just scroll down regardless of links
+				currentRow, _ := b.textView.GetScrollOffset()
+				b.textView.ScrollTo(currentRow + 10, 0)
+				return nil
+			case 'K': // Alternative: just scroll up regardless of links
+				currentRow, _ := b.textView.GetScrollOffset()
+				newRow := currentRow - 10
+				if newRow < 0 {
+					newRow = 0
+				}
+				b.textView.ScrollTo(newRow, 0)
 				return nil
 			case '?': // Show help/usage information
 				b.showHelp()
@@ -419,79 +437,15 @@ func (b *Browser) GoForward() {
 	}
 }
 
-// selectNextLink moves to the next link in the document
-func (b *Browser) selectNextLink() {
-	if len(b.links) == 0 {
-		return
-	}
-
-	b.currentLinkIndex++
-	if b.currentLinkIndex >= len(b.links) {
-		b.currentLinkIndex = 0 // Wrap around to first link
-	}
-
-	b.renderPageWithHighlightedLink()
-}
-
-// selectPreviousLink moves to the previous link in the document
-func (b *Browser) selectPreviousLink() {
-	if len(b.links) == 0 {
-		return
-	}
-
-	b.currentLinkIndex--
-	if b.currentLinkIndex < 0 {
-		b.currentLinkIndex = len(b.links) - 1 // Wrap around to last link
-	}
-
-	b.renderPageWithHighlightedLink()
-}
-
-// renderPageWithHighlightedLink renders the page with the currently selected link highlighted
-func (b *Browser) renderPageWithHighlightedLink() {
-	originalText := b.originalContent
-
-	// Create a copy of the original text with only the link number highlighted
-	var displayText string
-
-	if b.currentLinkIndex >= 0 && b.currentLinkIndex < len(b.links) && len(b.links) > 0 {
-		currentLinkNumber := b.currentLinkIndex + 1
-		linkText := b.links[b.currentLinkIndex].Text
-
-		// Create the target string to search for: "link text [number]"
-		targetStr := fmt.Sprintf("%s [%d]", linkText, currentLinkNumber)
-
-		// Also handle the case where it might be formatted differently
-		// Replace only the first occurrence to highlight the current link
-		displayText = strings.Replace(originalText, targetStr,
-			fmt.Sprintf("%s [blue][%d][::-]", linkText, currentLinkNumber), 1)
-
-		// If the above replacement didn't work (meaning the format was different),
-		// try a more general replacement for just the number
-		if displayText == originalText {
-			// If no replacement happened, try to just highlight the number [n] wherever it appears
-			linkNumberStr := fmt.Sprintf("[%d]", currentLinkNumber)
-			displayText = strings.Replace(originalText, linkNumberStr,
-				fmt.Sprintf("[blue]%s[::-]", linkNumberStr), 1)
-		}
-	} else {
-		displayText = originalText
-	}
-
-	b.textView.SetText(displayText)
-
-	// Update the title bar with current link info
-	b.updateTitleBar(b.currentLinkIndex)
-}
-
 // showHelp displays help and usage information
 func (b *Browser) showHelp() {
 	helpText := `Terminal Browser - Help & Usage
 
 Navigation:
-  j     - Move to next link
-  k     - Move to previous link
-  Enter - Follow current highlighted link
+  j     - Scroll down content
+  k     - Scroll up content
+  l     - Show all links in a modal list
+  Enter - Confirm selection in modal
   b     - Go back in history
   f     - Go forward in history
 
@@ -728,6 +682,87 @@ func (b *Browser) animateLoading() {
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
+}
+
+// showLinksModal displays a modal with a list of all links on the page
+func (b *Browser) showLinksModal() {
+	if len(b.links) == 0 {
+		return
+	}
+
+	// Create a new list for links
+	linkList := tview.NewList()
+	linkList.SetBorder(true)
+	linkList.SetTitle("Links on this page")
+	linkList.ShowSecondaryText(true)
+
+	// Add each link to the list
+	for i, link := range b.links {
+		linkText := link.Text
+		// Truncate long link text to fit in the list
+		if len(linkText) > 50 {
+			linkText = linkText[:50] + "..."
+		}
+
+		// Format the URL to show just the domain and path, truncating long paths
+		urlToShow := link.URL
+		if len(urlToShow) > 70 {
+			urlToShow = urlToShow[:70] + "..."
+		}
+
+		// Add the item with primary text as link text and secondary as URL
+		linkList.AddItem(linkText, urlToShow, 0, func(index int) func() {
+			return func() {
+				// Navigate to the selected link
+				b.NavigateTo(b.links[index].URL)
+				// Close the modal by returning to main view
+				flex := tview.NewFlex().
+					SetDirection(tview.FlexRow).
+					AddItem(b.textView, 0, 1, false).
+					AddItem(b.urlInput, 3, 0, false)
+				b.app.SetRoot(flex, true)
+				b.app.SetFocus(b.textView)
+			}
+		}(i))
+	}
+
+	// Add a close option
+	linkList.AddItem("Close", "Close the links list", 'c', func() {
+		// Close the modal by returning to main view
+		flex := tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(b.textView, 0, 1, false).
+			AddItem(b.urlInput, 3, 0, false)
+		b.app.SetRoot(flex, true)
+		b.app.SetFocus(b.textView)
+	})
+
+	// Add a go back option if there's history
+	if b.historyIndex > 0 {
+		linkList.AddItem("Go Back", "Return to previous page", 'b', func() {
+			// Go back in history and return to main view
+			b.GoBack()
+			// The GoBack function will handle updating the UI
+		})
+	}
+
+	// Set up key handling for the modal
+	linkList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
+			// Close the modal by returning to main view
+			flex := tview.NewFlex().
+				SetDirection(tview.FlexRow).
+				AddItem(b.textView, 0, 1, false).
+				AddItem(b.urlInput, 3, 0, false)
+			b.app.SetRoot(flex, true)
+			b.app.SetFocus(b.textView)
+			return nil
+		}
+		return event
+	})
+
+	// Set the list as root
+	b.app.SetRoot(linkList, true)
 }
 
 // hideLoadingIndicator hides the loading indicator and returns to the main view

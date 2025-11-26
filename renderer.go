@@ -29,7 +29,7 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	}
 
 	// Extract all links from the document first
-	var links []Link
+	var allLinks []Link
 	linkCounter := 0
 	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
@@ -48,7 +48,7 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 						href = baseURL + "/" + href
 					}
 				}
-				links = append(links, Link{
+				allLinks = append(allLinks, Link{
 					URL:      href,
 					Text:     text,
 					Position: linkCounter, // Position in order of appearance
@@ -82,14 +82,17 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	// Sanitize the content to prevent formatting code injection
 	sanitizedContent := b.sanitizeForTview(cleanedContent)
 
+	// Filter links to only those that appear in the readability content
+	visibleLinks := b.extractVisibleLinks(sanitizedContent, allLinks)
+
 	// Process content to embed link numbers directly in the text
-	processedContent := b.embedLinkNumbers(sanitizedContent, links)
+	processedContent := b.embedLinkNumbers(sanitizedContent, visibleLinks)
 
 	// Add the processed content
 	result.WriteString(processedContent)
 
 	// Store links for navigation
-	if len(links) > 0 {
+	if len(visibleLinks) > 0 {
 		// Add a separator before showing navigation info
 		result.WriteString("\n\n[yellow]Use 'j'/'k' to navigate links[-]\n")
 	}
@@ -100,7 +103,7 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	}
 
 	// Store the links in browser
-	b.links = links
+	b.links = visibleLinks
 	b.currentLinkIndex = -1 // Start with no link selected
 
 	// Set the content to the text view and store original content
@@ -180,6 +183,27 @@ func cleanExcessiveWhitespace(text string) string {
 	result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
 
 	return result
+}
+
+// extractVisibleLinks filters links to only those that appear in the readability content
+func (b *Browser) extractVisibleLinks(content string, allLinks []Link) []Link {
+	var visibleLinks []Link
+	usedTexts := make(map[string]bool) // Track which link texts have been used
+
+	for _, link := range allLinks {
+		// Check if the link text appears in the readability content
+		// We also want to avoid duplicates
+		if strings.Contains(content, link.Text) && !usedTexts[link.Text] {
+			// Additional check: ensure the link text is a meaningful part of the content
+			// (not just a small fragment that happens to match)
+			if len(link.Text) >= 2 { // At least 2 characters to be considered meaningful
+				visibleLinks = append(visibleLinks, link)
+				usedTexts[link.Text] = true
+			}
+		}
+	}
+
+	return visibleLinks
 }
 
 // embedLinkNumbers embeds link numbers directly in the content using a better algorithm
@@ -301,27 +325,33 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 		}
 	})
 
-	// Store the links in browser
-	b.links = links
-	b.currentLinkIndex = -1 // Start with no link selected
-
 	var result strings.Builder
 	tabs := 0
 
-	// Process the document
+	// Process the document to get the raw content first
 	doc.Find("body").Contents().Each(func(i int, s *goquery.Selection) {
 		node := s.Get(0)
 		b.renderNode(node, &result, &tabs)
 	})
 
-	// Set the content to the text view and store original content
-	originalText := result.String()
+	// Get the raw content before link numbering
+	rawContent := result.String()
+
+	// Filter links to only those that appear in the rendered content
+	visibleLinks := b.extractVisibleLinks(rawContent, links)
+
+	// Process content to embed link numbers directly in the text
+	processedContent := b.embedLinkNumbers(rawContent, visibleLinks)
+
+	// Store the links in browser
+	b.links = visibleLinks
+	b.currentLinkIndex = -1 // Start with no link selected
 
 	// Dynamically adjust word wrap based on content characteristics
-	b.updateWordWrapBasedOnContent(originalText)
+	b.updateWordWrapBasedOnContent(processedContent)
 
-	b.originalContent = originalText
-	b.textView.SetText(originalText)
+	b.originalContent = processedContent
+	b.textView.SetText(processedContent)
 	b.textView.ScrollToBeginning()
 }
 

@@ -7,8 +7,8 @@ A lightweight terminal-based web browser written in Go. Browse websites directly
 - **Browse in Terminal**: View web content directly in your terminal without GUI overhead
 - **Smart Content Extraction**: Strips away ads, menus, and navigation to show main content only
 - **Easy Navigation**: Move through pages with familiar keyboard shortcuts
-- **Link Selection**: Navigate and select links using the keyboard
-- **Enhanced Search**: Find and highlight content as you type, with selectable results list and navigation
+- **Link Selection**: View all links in a clean modal list with 'l' key
+- **Enhanced Search**: Find and highlight content as you type
 - **Loading Indicators**: Animated progress indicator during page loads
 - **Tab Navigation**: Switch between content view and URL input with Tab key
 - **Security Features**: URL validation, redirect limits, and input sanitization
@@ -53,24 +53,25 @@ go build
 | `/` | Start search mode |
 | `b` | Go back in history |
 | `f` | Go forward in history |
-| `j` | Move to next link (in content) or next search result (in search mode) |
-| `k` | Move to previous link (in content) or previous search result (in search mode) |
-| `Enter` | Follow the selected link (in content) or select search result (in search mode) |
+| `j` | Scroll down content |
+| `k` | Scroll up content |
+| `l` | Show modal list of all links on page |
+| `Enter` | Confirm selection in modal |
 | `?` | Show help screen |
-| `Tab` | Switch between content view and URL input box (in content) or between search input and results (in search mode) |
+| `Tab` | Switch between content view and URL input box |
 | `p` | Paste URL from clipboard (when in URL input field) |
 
-### Link Navigation
-- Links are automatically numbered in the text (e.g., `click here [1]`)
-- Use `j` and `k` to move between links
-- The current link is highlighted in blue
-- Press `Enter` to visit the selected link
-- Current link URL is shown in the title bar
-
 ### Content Navigation
+- Use `j` and `k` to scroll through content
 - Long lines are not wrapped, adjust your terminal width for optimal viewing
-- Use mouse wheel for vertical scrolling (if enabled)
 - Content automatically scrolls to the top when a new page loads
+
+### Link Navigation
+- Press `l` to open a clean modal list of all links on the current page
+- Each link shows both the link text and full URL for context
+- Use arrow keys to navigate the list and Enter to select a link
+- Includes a "Go Back" button to return to the previous page if available
+- Press Escape or 'q' to close the modal and return to content
 
 ### Clipboard Support
 - Press `p` when in the URL input field to paste content from clipboard
@@ -89,11 +90,7 @@ go build
 - Press `/` to start search mode
 - Type text to find in real-time
 - Matching text is highlighted in yellow throughout the content
-- Shows count of matches found and displays them in a selectable list
-- Use `j` and `k` keys to navigate between search results in the list
-- Press `Enter` on a search result to return to main content with that specific match highlighted in black text on yellow background
-- Press `Tab` to switch between search input field and results list
-- Press `Escape` or `q` to exit search mode and return to original content
+- Shows count of matches found
 
 ### Loading Indicators
 - When loading content, an animated "Loading..." indicator appears
@@ -124,7 +121,7 @@ export PROXY=http://your-proxy:port
 2. **Content Extraction**: Uses `go-readability` to extract main content while filtering out ads, menus, etc.
 3. **Text Rendering**: Converts HTML to readable plain text with proper formatting
 4. **Terminal UI**: Uses `tview` and `tcell` to create interactive terminal interface
-5. **Link Management**: Identifies and numbers links for easy keyboard navigation
+5. **Link Management**: Identifies and presents all visible links in a modal list
 6. **Loading Indicators**: Shows animated progress during page loads
 7. **Focus Management**: Properly handles focus switching between UI components
 
@@ -143,7 +140,7 @@ export PROXY=http://your-proxy:port
 - **Visual Elements**: Images and complex layouts are simplified to text format
 - **Performance**: Lightweight and fast, suitable for low-resource environments
 - **Navigation**: Full keyboard-based navigation with intuitive shortcuts
-- **Search**: Enhanced search functionality allows for precise navigation to specific content matches
+- **Link Handling**: All visible links are presented in an organized modal list accessible with 'l' key
 
 ## 🤝 Contributing
 
