@@ -17,7 +17,13 @@ func (b *Browser) startSearch() {
 		SetDoneFunc(func(key tcell.Key) {
 			if key == tcell.KeyEnter || key == tcell.KeyEscape {
 				// Return to main view when Enter or Escape is pressed
-				b.app.SetRoot(b.textView, true)
+				// Restore the proper flex layout with URL input
+				flex := tview.NewFlex().
+					SetDirection(tview.FlexRow).
+					AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
+					AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
+
+				b.app.SetRoot(flex, true)
 			}
 		})
 

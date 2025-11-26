@@ -386,7 +386,13 @@ Press any key to close this help.`
 	helpView.SetText(helpText)
 	helpView.SetDoneFunc(func(key tcell.Key) {
 		// Close help when any key is pressed
-		b.app.SetRoot(b.textView, true)
+		// Restore the proper flex layout with URL input
+		flex := tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
+			AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
+
+		b.app.SetRoot(flex, true)
 	})
 
 	// Set the help view as root
