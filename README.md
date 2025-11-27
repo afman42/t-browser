@@ -11,13 +11,16 @@ A lightweight web browser that runs directly in your terminal. Browse the web wi
 - **Preview images** right in your terminal
 - **Search text** on any webpage instantly
 - **Use basic proxy** for connections
+- **Configure browser settings** through an intuitive settings page
 
 ## 🚀 How to Get Started
 
 ### What You Need
+
 - Go programming language (version 1.19 or newer)
 
 ### Install and Run
+
 ```bash
 # Download the code
 git clone https://github.com/yourusername/t-browser.git
@@ -34,6 +37,7 @@ go build
 ```
 
 ### Quick Usage Examples
+
 ```bash
 # Open with default homepage
 ./t-browser
@@ -47,27 +51,42 @@ go build
 
 ## ⌨️ Keyboard Shortcuts
 
-| Key | What it Does |
-|-----|--------------|
-| `q` or `Ctrl+C` | Exit the browser |
-| `/` | Find text on the page |
-| `b` | Go back to previous page |
-| `f` | Go forward (like browser history) |
-| `j` | Move down through content |
-| `k` | Move up through content |
-| `l` | See all links on current page |
-| `i` | See all images on current page |
-| `Enter` | Choose a link or image |
-| `?` | Show help |
-| `Tab` | Switch between web content and address bar |
-| `p` | Paste a URL from clipboard |
+| Key             | What it Does                               |
+| --------------- | ------------------------------------------ |
+| `q` or `Ctrl+C` | Exit the browser                           |
+| `/`             | Find text on the page                      |
+| `b`             | Go back to previous page                   |
+| `f`             | Go forward (like browser history)          |
+| `j`             | Move down through content                  |
+| `k`             | Move up through content                    |
+| `l`             | See all links on current page              |
+| `i`             | See all images on current page             |
+| `s`             | Open settings page                         |
+| `Enter`         | Choose a link or image                     |
+| `?`             | Show help                                  |
+| `Tab`           | Switch between web content and address bar |
+| `p`             | Paste a URL from clipboard                 |
+
+### Settings Page Navigation
+
+The settings page features a two-column layout with additional navigation options:
+
+| Key Combination                                 | What it Does                                                        |
+| ----------------------------------------------- | ------------------------------------------------------------------- |
+| `s`                                             | Open settings page with category list on left and settings on right |
+| `Tab`                                           | Switch focus between left (categories) and right (settings) columns |
+| `Shift+Tab`                                     | Navigate between form elements in the right column                  |
+| `Tab` (in left column, when right is not empty) | Switch to the settings form                                         |
+| `Cancel button`                                 | Clear the right column and set focus to left column                 |
 
 ### Browsing Tips
+
 - Use `j` and `k` to move up/down the webpage
 - Long text lines won't wrap - make your terminal wider if needed
 - New pages always start at the top
 
 ### Finding Links
+
 - Press `l` to see a clean list of all links
 - Each link shows the text and its full web address
 - Links with images show [IMAGE] or [IMAGE*] markers
@@ -75,6 +94,7 @@ go build
 - Press Esc or 'q' to return to the page
 
 ### Viewing Images
+
 - Press `i` to see all images on the page
 - Shows image name, description, and file type
 - Pick any image to view it in your terminal
@@ -83,17 +103,29 @@ go build
 - Press Esc or 'q' to return
 
 ### Search on Any Page
+
 - Press `/` to start searching
 - Type any words - they light up in yellow
 - See how many matches you found
 
 ## ⚙️ Configuration and Settings
 
-The browser uses a configuration file to manage settings across sessions. The configuration file is automatically created and managed in the appropriate OS-specific location:
+The browser uses a configuration file to manage settings across sessions and provides an in-browser settings page for easy configuration. The configuration file is automatically created and managed in the appropriate OS-specific location:
 
 - **Linux**: `~/.config/t-browser/config.yaml`
 - **Windows**: `%APPDATA%\t-browser\config.yaml`
 - **macOS**: `~/Library/Application Support/t-browser/config.yaml`
+
+### Settings Page
+
+Access the settings page by pressing the `s` key while browsing. The settings page features:
+
+- **Two-column layout**: Categories on the left, settings on the right
+- **Six categories**: Browser, Network, Content, UI, Privacy, and Advanced settings
+- **Intuitive navigation**: Use Tab to switch between columns, Alt+Arrows to navigate form elements
+- **Visual feedback**: Save and Cancel buttons appear when changes are made
+- **Cancel functionality**: Press Cancel to clear the right column and return focus to categories
+- **Persistent settings**: Changes are saved to the configuration file when you Save
 
 ### Configuration Settings
 
@@ -120,11 +152,13 @@ The configuration file includes the following settings:
 You can set a proxy using the configuration file or environment variable:
 
 Using the config file (recommended):
+
 ```yaml
 proxy: http://your-proxy:port
 ```
 
 Or use environment variable:
+
 ```bash
 export PROXY=http://your-proxy:port
 ./t-browser

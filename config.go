@@ -342,3 +342,31 @@ func GetLatestSessionFile(configDir string) string {
 
 	return latestFile
 }
+
+// WriteToFile writes the current configuration to the config file
+func (c *Config) WriteToFile(configDir string) error {
+	// Use Viper to set all config values
+	viper.Set("user_agent", c.UserAgent)
+	viper.Set("window_size_x", c.WindowSizeX)
+	viper.Set("window_size_y", c.WindowSizeY)
+	viper.Set("cookie_file", c.CookieFile)
+	viper.Set("cookie_auto_save", c.CookieAutoSave)
+	viper.Set("session_file", c.SessionFile)
+	viper.Set("session_auto_save", c.SessionAutoSave)
+	viper.Set("session_history_size", c.SessionHistorySize)
+	viper.Set("proxy", c.Proxy)
+	viper.Set("request_timeout", c.RequestTimeout)
+	viper.Set("max_redirects", c.MaxRedirects)
+	viper.Set("max_page_size", c.MaxPageSize)
+	viper.Set("max_image_size", c.MaxImageSize)
+	viper.Set("enable_images", c.EnableImages)
+	viper.Set("enable_scripts", c.EnableScripts)
+	viper.Set("enable_cookies", c.EnableCookies)
+	viper.Set("theme", c.Theme)
+	viper.Set("show_images", c.ShowImages)
+	viper.Set("word_wrap", c.WordWrap)
+
+	// Write to the config file
+	configPath := filepath.Join(configDir, "config.yaml")
+	return viper.WriteConfigAs(configPath)
+}

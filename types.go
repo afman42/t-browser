@@ -34,4 +34,7 @@ type Browser struct {
 	searchMatches             []SearchMatch // Store search matches for navigation
 	returningFromSearchResult bool          // Flag to track if returning from a selected search result
 	config                    *Config       // Configuration for the browser
+	settingsActive            bool          // Flag to track if settings page is active
+	settingsChanged           bool          // Flag to track if settings have been changed
+	rightColumnEmpty          bool          // Flag to track if right column is empty
 }

@@ -82,6 +82,9 @@ func (b *Browser) createUI() {
 				}
 				b.textView.ScrollTo(newRow, 0)
 				return nil
+			case 's': // Show settings page
+				b.showSettingsModal()
+				return nil
 			case '?': // Show help/usage information
 				b.showHelp()
 				return nil
@@ -132,6 +135,11 @@ func (b *Browser) createUI() {
 			}
 			return nil // Consume the event
 		}
+		// Handle 's' key to open settings
+		if event.Key() == tcell.KeyRune && event.Rune() == 's' {
+			b.showSettingsModal()
+			return nil // Consume the event
+		}
 		return event
 	})
 
@@ -150,6 +158,7 @@ Navigation:
   Enter - Confirm selection in modal
   b     - Go back in history
   f     - Go forward in history
+  s     - Open settings page
 
 Link Handling:
   - Links marked with [IMAGE] for detected images, [IMAGE*] for real extensions
@@ -179,6 +188,11 @@ URL Input:
   - Press Tab to return to content view
   - For long URLs: use ← and → arrow keys to navigate within the input field
   - The input field shows a portion of long URLs; use arrow keys to see more
+
+Settings:
+  - Press 's' to access settings page
+  - Two-column layout: categories on left, settings on right
+  - Modify settings and click Save or Cancel to exit
 
 Clipboard:
   - Press 'p' when in URL input field to paste URL from clipboard
