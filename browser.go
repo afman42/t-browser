@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -170,11 +171,27 @@ func (b *Browser) GetAllCookies() []*Cookie {
 func (b *Browser) ClearCookies() {
 	b.client.cookies = make(map[string]*Cookie)
 	// Also clear the persistent storage
-	cookieFile := "t-browser-cookies.json"
-	if b.config != nil && b.config.CookieFile != "" {
-		cookieFile = b.config.CookieFile
+	if b.config != nil {
+		// Clear the cookies subdirectory
+		configDir := GetConfigDir()
+		cookiesDir := filepath.Join(configDir, "cookies")
+		if _, err := os.Stat(cookiesDir); err == nil {
+			// Remove all files in the cookies directory
+			files, _ := os.ReadDir(cookiesDir)
+			for _, file := range files {
+				if !file.IsDir() {
+					os.Remove(filepath.Join(cookiesDir, file.Name()))
+				}
+			}
+		}
+	} else {
+		// Fallback to old method
+		cookieFile := "t-browser-cookies.json"
+		if b.config != nil && b.config.CookieFile != "" {
+			cookieFile = b.config.CookieFile
+		}
+		os.Remove(cookieFile)
 	}
-	os.Remove(cookieFile)
 }
 
 // ClearCookiesForDomain removes cookies for a specific domain
@@ -240,11 +257,21 @@ func (b *Browser) LoadSession(filename string) error {
 // Run starts the browser application
 func (b *Browser) Run() error {
 	// Load previous session if available
-	sessionFile := "t-browser-session.json"
-	if b.config != nil && b.config.SessionFile != "" {
-		sessionFile = b.config.SessionFile
+	if b.config != nil {
+		// Use the config directory to find the latest session file
+		configDir := GetConfigDir()
+		sessionFile := GetLatestSessionFile(configDir)
+		if sessionFile != "" {
+			b.LoadSession(sessionFile)
+		}
+	} else {
+		// Fallback to old method
+		sessionFile := "t-browser-session.json"
+		if b.config != nil && b.config.SessionFile != "" {
+			sessionFile = b.config.SessionFile
+		}
+		b.LoadSession(sessionFile)
 	}
-	b.LoadSession(sessionFile)
 
 	// Create UI components
 	b.createUI()
@@ -294,11 +321,15 @@ func (b *Browser) Run() error {
 	b.client.saveCookiesToFile()
 
 	// Save the session state
-	if b.config != nil && b.config.SessionFile != "" {
-		sessionFile = b.config.SessionFile
-	}
 	if b.config != nil && b.config.SessionAutoSave {
+		// Use the config directory to get a new timestamped session file
+		configDir := GetConfigDir()
+		sessionFile := GetSessionFilePath(configDir)
 		b.SaveSession(sessionFile)
+	}
+	// For backward compatibility, if config is nil, use the old method
+	if b.config == nil {
+		b.SaveSession("t-browser-session.json")
 	}
 
 	return nil

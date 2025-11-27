@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -235,4 +238,107 @@ func LoadConfig() (Config, error) {
 	}
 
 	return config, nil
+}
+
+// GetTimestamp returns a timestamp string in YYYY-MM-DD_HH-MM-SS format
+func GetTimestamp() string {
+	return time.Now().Format("2006-01-02_15-04-05")
+}
+
+// GetCookieFilePath returns the path for a new cookie file with timestamp
+func GetCookieFilePath(configDir string) string {
+	// Create cookies subdirectory if it doesn't exist
+	cookiesDir := filepath.Join(configDir, "cookies")
+	if _, err := os.Stat(cookiesDir); os.IsNotExist(err) {
+		os.MkdirAll(cookiesDir, 0755)
+	}
+
+	// Create a filename with timestamp
+	filename := fmt.Sprintf("cookies_%s.json", GetTimestamp())
+	return filepath.Join(cookiesDir, filename)
+}
+
+// GetSessionFilePath returns the path for a new session file with timestamp
+func GetSessionFilePath(configDir string) string {
+	// Create sessions subdirectory if it doesn't exist
+	sessionsDir := filepath.Join(configDir, "sessions")
+	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
+		os.MkdirAll(sessionsDir, 0755)
+	}
+
+	// Create a filename with timestamp
+	filename := fmt.Sprintf("session_%s.json", GetTimestamp())
+	return filepath.Join(sessionsDir, filename)
+}
+
+// GetLatestCookieFile returns the path to the most recent cookie file
+func GetLatestCookieFile(configDir string) string {
+	cookiesDir := filepath.Join(configDir, "cookies")
+	if _, err := os.Stat(cookiesDir); os.IsNotExist(err) {
+		return ""
+	}
+
+	// Read all files in the cookies directory
+	files, err := os.ReadDir(cookiesDir)
+	if err != nil {
+		return ""
+	}
+
+	// Find the most recent cookie file
+	var latestFile string
+	var latestTime time.Time
+
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "cookies_") && strings.HasSuffix(file.Name(), ".json") {
+			// Extract timestamp from filename
+			// Format: cookies_YYYY-MM-DD_HH-MM-SS.json
+			timeStr := strings.TrimPrefix(file.Name(), "cookies_")
+			timeStr = strings.TrimSuffix(timeStr, ".json")
+
+			// Parse the timestamp
+			fileTime, err := time.Parse("2006-01-02_15-04-05", timeStr)
+			if err == nil && fileTime.After(latestTime) {
+				latestTime = fileTime
+				latestFile = filepath.Join(cookiesDir, file.Name())
+			}
+		}
+	}
+
+	return latestFile
+}
+
+// GetLatestSessionFile returns the path to the most recent session file
+func GetLatestSessionFile(configDir string) string {
+	sessionsDir := filepath.Join(configDir, "sessions")
+	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
+		return ""
+	}
+
+	// Read all files in the sessions directory
+	files, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return ""
+	}
+
+	// Find the most recent session file
+	var latestFile string
+	var latestTime time.Time
+
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "session_") && strings.HasSuffix(file.Name(), ".json") {
+			// Extract timestamp from filename
+			// Format: session_YYYY-MM-DD_HH-MM-SS.json
+			timeStr := strings.TrimPrefix(file.Name(), "session_")
+			timeStr = strings.TrimSuffix(timeStr, ".json")
+
+			// Parse the timestamp
+			fileTime, err := time.Parse("2006-01-02_15-04-05", timeStr)
+			if err == nil && fileTime.After(latestTime) {
+				latestTime = fileTime
+				latestFile = filepath.Join(sessionsDir, file.Name())
+			}
+		}
+	}
+
+	return latestFile
 }

@@ -87,9 +87,44 @@ go build
 - Type any words - they light up in yellow
 - See how many matches you found
 
-## ⚙️ Using a Proxy
+## ⚙️ Configuration and Settings
 
-If you need to use a proxy, set it with:
+The browser uses a configuration file to manage settings across sessions. The configuration file is automatically created and managed in the appropriate OS-specific location:
+
+- **Linux**: `~/.config/t-browser/config.yaml`
+- **Windows**: `%APPDATA%\t-browser\config.yaml`
+- **macOS**: `~/Library/Application Support/t-browser/config.yaml`
+
+### Configuration Settings
+
+The configuration file includes the following settings:
+
+- `user_agent`: Custom user agent string for HTTP requests
+- `cookie_file`: Path to store persistent cookies
+- `cookie_auto_save`: Enable automatic cookie saving
+- `session_file`: Path to store session data
+- `session_auto_save`: Enable automatic session saving
+- `proxy`: Proxy server URL (e.g., "http://proxy:port")
+- `request_timeout`: Time in seconds before request timeout
+- `max_redirects`: Maximum number of HTTP redirects to follow
+- `max_page_size`: Maximum size (in bytes) for downloaded pages
+- `max_image_size`: Maximum size (in bytes) for images
+- `enable_images`: Enable or disable image loading
+- `enable_cookies`: Enable or disable cookie storage
+- `theme`: Color theme for the interface
+- `show_images`: Display images in terminal
+- `word_wrap`: Enable text word wrapping
+
+### Proxy Setup
+
+You can set a proxy using the configuration file or environment variable:
+
+Using the config file (recommended):
+```yaml
+proxy: http://your-proxy:port
+```
+
+Or use environment variable:
 ```bash
 export PROXY=http://your-proxy:port
 ./t-browser
@@ -102,6 +137,7 @@ export PROXY=http://your-proxy:port
 - **Local blocking**: Won't access internal computers
 - **Size limits**: Images limited to 5MB
 - **Content cleaning**: Strips harmful formatting
+- **Config security**: Configuration and cookie files stored securely with appropriate permissions
 
 ## 🏗️ How It Works
 

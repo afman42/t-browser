@@ -170,9 +170,20 @@ func (c *HTTPClient) SetProxy(proxy *url.URL) {
 
 // loadCookiesFromFile loads cookies from persistent storage
 func (c *HTTPClient) loadCookiesFromFile() {
-	cookieFile := "t-browser-cookies.json" // default
-	if c.config != nil && c.config.CookieFile != "" {
-		cookieFile = c.config.CookieFile
+	var cookieFile string
+
+	if c.config != nil {
+		// Use the config directory to find the latest cookie file
+		configDir := GetConfigDir()
+		cookieFile = GetLatestCookieFile(configDir)
+	}
+
+	// If no file found or config is not available, use the old method as fallback
+	if cookieFile == "" {
+		cookieFile = "t-browser-cookies.json"
+		if c.config != nil && c.config.CookieFile != "" {
+			cookieFile = c.config.CookieFile
+		}
 	}
 
 	data, err := os.ReadFile(cookieFile)
@@ -199,9 +210,20 @@ func (c *HTTPClient) loadCookiesFromFile() {
 
 // saveCookiesToFile saves cookies to persistent storage
 func (c *HTTPClient) saveCookiesToFile() {
-	cookieFile := "t-browser-cookies.json" // default
-	if c.config != nil && c.config.CookieFile != "" {
-		cookieFile = c.config.CookieFile
+	var cookieFile string
+
+	if c.config != nil {
+		// Use the config directory to get a new timestamped cookie file
+		configDir := GetConfigDir()
+		cookieFile = GetCookieFilePath(configDir)
+	}
+
+	// If config is not available, use fallback
+	if cookieFile == "" {
+		cookieFile = "t-browser-cookies.json"
+		if c.config != nil && c.config.CookieFile != "" {
+			cookieFile = c.config.CookieFile
+		}
 	}
 
 	// Clean up expired cookies before saving
