@@ -224,22 +224,11 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 		rightForm.AddTextView("", setting.Description, 0, 1, false, false)
 	}
 
-	// Add save and cancel buttons only if settings have been changed
+	// Add only save button when settings have been changed
 	if b.settingsChanged {
 		rightForm.AddButton("Save", func() {
 			b.saveSettings()
 			b.closeSettingsModal()
-		})
-		rightForm.AddButton("Cancel", func() {
-			// Reset the settingsChanged flag to hide the buttons
-			b.settingsChanged = false
-			// Reload the original config to revert changes
-			originalConfig, err := LoadConfig()
-			if err == nil {
-				*b.config = originalConfig
-			}
-			// Rebuild the form to refresh with original values
-			b.updateRightColumn(flex, leftList, category)
 		})
 	}
 
@@ -360,13 +349,6 @@ func (b *Browser) saveSettings() {
 
 	// Apply the new theme if it was changed
 	b.ApplyTheme()
-
-	// Refresh the content with the new theme formatting
-	if b.originalUnprocessedContent != "" {
-		processedContent := b.ensureContentVisibilityForTheme(b.originalUnprocessedContent)
-		b.originalContent = processedContent
-		b.textView.SetText(processedContent)
-	}
 
 	// Close the settings modal and return to browser
 	b.closeSettingsModal()
