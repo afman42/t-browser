@@ -106,13 +106,17 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	b.currentLinkIndex = -1 // Start with no link selected
 
 	// Set the content to the text view and store original content
-	originalText := result.String()
+	originalUnprocessedText := result.String()
 
 	// Dynamically adjust word wrap based on content characteristics
-	b.updateWordWrapBasedOnContent(originalText)
+	b.updateWordWrapBasedOnContent(originalUnprocessedText)
 
-	b.originalContent = originalText
-	b.textView.SetText(originalText)
+	// Process content to ensure visibility based on current theme
+	processedContent := b.ensureContentVisibilityForTheme(originalUnprocessedText)
+
+	b.originalUnprocessedContent = originalUnprocessedText
+	b.originalContent = processedContent
+	b.textView.SetText(processedContent)
 	b.textView.ScrollToBeginning()
 
 	// Explicitly release the result builder to help GC
@@ -140,15 +144,19 @@ func (b *Browser) renderPageWithReadabilityContent(article readability.Article) 
 		result.WriteString(fmt.Sprintf("\n[Image: %s]", article.Image))
 	}
 
-	processedContent := result.String()
+	originalUnprocessedContent := result.String()
+
+	// Process content to ensure visibility based on current theme
+	themeProcessedContent := b.ensureContentVisibilityForTheme(originalUnprocessedContent)
 
 	// Set the content to the text view and store original content
-	b.originalContent = processedContent
+	b.originalUnprocessedContent = originalUnprocessedContent
+	b.originalContent = themeProcessedContent
 
 	// Dynamically adjust word wrap based on content characteristics
-	b.updateWordWrapBasedOnContent(processedContent)
+	b.updateWordWrapBasedOnContent(originalUnprocessedContent)
 
-	b.textView.SetText(processedContent)
+	b.textView.SetText(themeProcessedContent)
 	b.textView.ScrollToBeginning()
 }
 
@@ -329,11 +337,13 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 	b.images = images
 	b.currentLinkIndex = -1 // Start with no link selected
 
-	processedContent := rawContent
+	// Process content to ensure visibility based on current theme
+	processedContent := b.ensureContentVisibilityForTheme(rawContent)
 
 	// Dynamically adjust word wrap based on content characteristics
-	b.updateWordWrapBasedOnContent(processedContent)
+	b.updateWordWrapBasedOnContent(rawContent)
 
+	b.originalUnprocessedContent = rawContent
 	b.originalContent = processedContent
 	b.textView.SetText(processedContent)
 	b.textView.ScrollToBeginning()

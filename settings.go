@@ -166,8 +166,6 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				// Store the changed value temporarily and mark settings as changed
 				b.updateSettingValue(setting.ID, checked)
 				b.settingsChanged = true
-				// Rebuild the form to show the save/cancel buttons
-				b.updateRightColumn(flex, leftList, category)
 			})
 		case "int":
 			// Add an input field for integer settings
@@ -185,8 +183,6 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				if intVal, err := strconv.Atoi(text); err == nil {
 					b.updateSettingValue(setting.ID, intVal)
 					b.settingsChanged = true
-					// Rebuild the form to show the save/cancel buttons
-					b.updateRightColumn(flex, leftList, category)
 				}
 			})
 		case "password":
@@ -196,18 +192,33 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				value = ""
 			}
 			rightForm.AddPasswordField(setting.Name, value, 40, '*', nil)
-		default: // string
-			// Add an input field for string settings
-			value, ok := setting.Value.(string)
-			if !ok {
-				value = ""
+		case "string":
+			// Add a dropdown for theme selection, input field for other string settings
+			if setting.ID == "theme" {
+				value, ok := setting.Value.(string)
+				if !ok {
+					value = "dark"
+				}
+				// Set the current option based on the value
+				currentOption := 0 // default to dark
+				if value == "light" {
+					currentOption = 1
+				}
+				rightForm.AddDropDown(setting.Name, []string{"dark", "light"}, currentOption, func(option string, optionIndex int) {
+					b.updateSettingValue(setting.ID, option)
+					b.settingsChanged = true
+				})
+			} else {
+				// Add an input field for other string settings
+				value, ok := setting.Value.(string)
+				if !ok {
+					value = ""
+				}
+				rightForm.AddInputField(setting.Name, value, 40, nil, func(text string) {
+					b.updateSettingValue(setting.ID, text)
+					b.settingsChanged = true
+				})
 			}
-			rightForm.AddInputField(setting.Name, value, 40, nil, func(text string) {
-				b.updateSettingValue(setting.ID, text)
-				b.settingsChanged = true
-				// Rebuild the form to show the save/cancel buttons
-				b.updateRightColumn(flex, leftList, category)
-			})
 		}
 		// Add the description as a static text item with a unique label
 		rightForm.AddTextView("", setting.Description, 0, 1, false, false)
@@ -222,8 +233,13 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 		rightForm.AddButton("Cancel", func() {
 			// Reset the settingsChanged flag to hide the buttons
 			b.settingsChanged = false
-			// Update the right column to show empty content
-			b.updateRightColumnForEmpty(flex, leftList)
+			// Reload the original config to revert changes
+			originalConfig, err := LoadConfig()
+			if err == nil {
+				*b.config = originalConfig
+			}
+			// Rebuild the form to refresh with original values
+			b.updateRightColumn(flex, leftList, category)
 		})
 	}
 
@@ -341,6 +357,19 @@ func (b *Browser) saveSettings() {
 	if err := b.config.WriteToFile(configDir); err != nil {
 		// Could show an error message here if needed
 	}
+
+	// Apply the new theme if it was changed
+	b.ApplyTheme()
+
+	// Refresh the content with the new theme formatting
+	if b.originalUnprocessedContent != "" {
+		processedContent := b.ensureContentVisibilityForTheme(b.originalUnprocessedContent)
+		b.originalContent = processedContent
+		b.textView.SetText(processedContent)
+	}
+
+	// Close the settings modal and return to browser
+	b.closeSettingsModal()
 }
 
 // closeSettingsModal closes the settings modal and returns to browser

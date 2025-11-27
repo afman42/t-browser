@@ -23,7 +23,8 @@ type Browser struct {
 	proxy                     string
 	currentURL                string
 	searchTerm                string
-	originalContent           string  // Store original content for search
+	originalContent           string  // Store original content for search (theme-processed)
+	originalUnprocessedContent string // Store unprocessed content with theme-dependent formatting
 	links                     []Link  // Store links found on the page
 	images                    []Image // Store images found on the page
 	currentLinkIndex          int     // Index of currently highlighted link

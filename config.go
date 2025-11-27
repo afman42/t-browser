@@ -64,7 +64,7 @@ func GetDefaultConfig() Config {
 		EnableImages:     true,
 		EnableScripts:    false,
 		EnableCookies:    true,
-		Theme:           "default",
+		Theme:           "dark", // Changed from "default" to "dark" as the default theme
 		ShowImages:      true,
 		WordWrap:        true,
 	}

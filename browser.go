@@ -273,6 +273,9 @@ func (b *Browser) Run() error {
 		b.LoadSession(sessionFile)
 	}
 
+	// Apply the selected theme based on config BEFORE creating UI
+	b.ApplyTheme()
+
 	// Create UI components
 	b.createUI()
 
@@ -573,6 +576,130 @@ func (b *Browser) hideLoadingIndicator() {
 
 	// Ensure focus goes back to the main content after loading
 	b.app.SetFocus(b.textView)
+}
+
+// ensureContentVisibilityForTheme ensures content is readable in the current theme
+func (b *Browser) ensureContentVisibilityForTheme(content string) string {
+	if b.config.Theme == "light" {
+		// Replace theme-dependent formatting with explicit colors for light theme
+		// Replace [::b] (theme bold) with explicit black bold for light background
+		content = strings.ReplaceAll(content, "[::b]", "[black::b]")
+		// Replace [::i] (theme italic) with explicit black italic
+		content = strings.ReplaceAll(content, "[::i]", "[black::i]")
+		// Replace [::u] (theme underline) with explicit black underline
+		content = strings.ReplaceAll(content, "[::u]", "[black::u]")
+
+		// Also handle other theme-dependent colors that might be invisible
+		// Convert any remaining theme-dependent color specifications
+		return content
+	} else {
+		// For dark theme, ensure content uses appropriate colors
+		// Replace theme-dependent formatting with explicit colors for dark theme
+		content = strings.ReplaceAll(content, "[::b]", "[white::b]")
+		content = strings.ReplaceAll(content, "[::i]", "[white::i]")
+		content = strings.ReplaceAll(content, "[::u]", "[white::u]")
+		return content
+	}
+}
+
+// ApplyTheme applies the selected theme to the application
+func (b *Browser) ApplyTheme() {
+	// Set default dark theme
+	if b.config.Theme == "" || b.config.Theme == "dark" {
+		// Dark theme - use default tview styles
+		tview.Styles = tview.Theme{
+			PrimitiveBackgroundColor:    tcell.ColorBlack,
+			ContrastBackgroundColor:     tcell.ColorBlue,
+			MoreContrastBackgroundColor: tcell.ColorGreen,
+			BorderColor:                 tcell.ColorWhite,
+			TitleColor:                  tcell.ColorWhite,
+			GraphicsColor:               tcell.ColorWhite,
+			PrimaryTextColor:            tcell.ColorWhite,
+			SecondaryTextColor:          tcell.ColorYellow,
+			TertiaryTextColor:           tcell.ColorGreen,
+			InverseTextColor:            tcell.ColorYellow, // Changed to Yellow for better visibility on dark background
+			ContrastSecondaryTextColor:  tcell.ColorNavy,
+		}
+	} else if b.config.Theme == "light" {
+		// Light theme
+		tview.Styles = tview.Theme{
+			PrimitiveBackgroundColor:    tcell.ColorWhite,
+			ContrastBackgroundColor:     tcell.ColorLightGray,
+			MoreContrastBackgroundColor: tcell.ColorGray,
+			BorderColor:                 tcell.ColorBlack,
+			TitleColor:                  tcell.ColorBlack,
+			GraphicsColor:               tcell.ColorBlack,
+			PrimaryTextColor:            tcell.ColorBlack,
+			SecondaryTextColor:          tcell.ColorBlue,
+			TertiaryTextColor:           tcell.ColorGreen,
+			InverseTextColor:            tcell.ColorBlue, // Changed from White to Blue for visibility on white background
+			ContrastSecondaryTextColor:  tcell.ColorNavy,
+		}
+	} else {
+		// Fallback to dark theme for any unrecognized theme
+		tview.Styles = tview.Theme{
+			PrimitiveBackgroundColor:    tcell.ColorBlack,
+			ContrastBackgroundColor:     tcell.ColorBlue,
+			MoreContrastBackgroundColor: tcell.ColorGreen,
+			BorderColor:                 tcell.ColorWhite,
+			TitleColor:                  tcell.ColorWhite,
+			GraphicsColor:               tcell.ColorWhite,
+			PrimaryTextColor:            tcell.ColorWhite,
+			SecondaryTextColor:          tcell.ColorYellow,
+			TertiaryTextColor:           tcell.ColorGreen,
+			InverseTextColor:            tcell.ColorYellow, // Changed to Yellow for better visibility on dark background
+			ContrastSecondaryTextColor:  tcell.ColorNavy,
+		}
+	}
+
+	// Update UI elements if they exist
+	if b.textView != nil {
+		// Update textView appearance based on theme
+		if b.config.Theme == "light" {
+			b.textView.SetBackgroundColor(tcell.ColorWhite)
+			// Refresh content to make sure it's visible in light mode
+			if b.originalUnprocessedContent != "" {
+				processedContent := b.ensureContentVisibilityForTheme(b.originalUnprocessedContent)
+				b.originalContent = processedContent
+				b.textView.SetText(processedContent)
+			}
+		} else {
+			b.textView.SetBackgroundColor(tcell.ColorBlack)
+			// Refresh content to make sure it's visible in dark mode
+			if b.originalUnprocessedContent != "" {
+				processedContent := b.ensureContentVisibilityForTheme(b.originalUnprocessedContent)
+				b.originalContent = processedContent
+				b.textView.SetText(processedContent)
+			}
+		}
+		// Set other visual properties based on theme
+		if b.config.Theme == "light" {
+			b.textView.SetBorder(true)
+			b.textView.SetBorderColor(tcell.ColorBlack)
+			b.textView.SetTitleColor(tcell.ColorBlack)
+		} else {
+			b.textView.SetBorder(true)
+			b.textView.SetBorderColor(tcell.ColorWhite)
+			b.textView.SetTitleColor(tcell.ColorWhite)
+		}
+	}
+
+	if b.urlInput != nil {
+		// Update urlInput appearance based on theme
+		if b.config.Theme == "light" {
+			b.urlInput.SetBackgroundColor(tcell.ColorWhite)
+			b.urlInput.SetBorderColor(tcell.ColorBlack)
+			b.urlInput.SetTitleColor(tcell.ColorBlack) // Set title text color
+			b.urlInput.SetFieldBackgroundColor(tcell.ColorLightGray)
+			b.urlInput.SetFieldTextColor(tcell.ColorBlack)
+		} else {
+			b.urlInput.SetBackgroundColor(tcell.ColorBlack)
+			b.urlInput.SetBorderColor(tcell.ColorWhite)
+			b.urlInput.SetTitleColor(tcell.ColorWhite) // Set title text color
+			b.urlInput.SetFieldBackgroundColor(tcell.ColorBlue)
+			b.urlInput.SetFieldTextColor(tcell.ColorWhite)
+		}
+	}
 }
 
 // validateAndSanitizeURL validates and sanitizes the input URL
