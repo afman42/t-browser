@@ -33,4 +33,5 @@ type Browser struct {
 	loadingStop               chan struct{} // Channel to signal loading animation to stop
 	searchMatches             []SearchMatch // Store search matches for navigation
 	returningFromSearchResult bool          // Flag to track if returning from a selected search result
+	config                    *Config       // Configuration for the browser
 }

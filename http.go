@@ -24,7 +24,7 @@ type HTTPClient struct {
 	forceUA      string
 	proxy        *url.URL
 	maxRedirects int
-	cookieFile   string  // Path to persistent cookie storage file
+	config *Config
 }
 
 // Cookie represents an HTTP cookie
@@ -121,7 +121,23 @@ func matchesPath(requestPath, cookiePath string) bool {
 }
 
 // NewHTTPClient creates a new HTTP client with proper configuration
-func NewHTTPClient() *HTTPClient {
+func NewHTTPClient(config *Config) *HTTPClient {
+	// Use provided config values or defaults
+	timeout := time.Duration(30)
+	if config != nil && config.RequestTimeout > 0 {
+		timeout = time.Duration(config.RequestTimeout) * time.Second
+	}
+
+	maxRedirects := 10
+	if config != nil && config.MaxRedirects > 0 {
+		maxRedirects = config.MaxRedirects
+	}
+
+	userAgent := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+	if config != nil && config.UserAgent != "" {
+		userAgent = config.UserAgent
+	}
+
 	transport := &http.Transport{
 		MaxIdleConns:        10,
 		IdleConnTimeout:     30 * time.Second,
@@ -131,12 +147,12 @@ func NewHTTPClient() *HTTPClient {
 	client := &HTTPClient{
 		client: &http.Client{
 			Transport: transport,
-			Timeout:   30 * time.Second,
+			Timeout:   timeout,
 		},
 		cookies:      make(map[string]*Cookie),
-		forceUA:      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-		maxRedirects: 10, // Limit redirects to prevent infinite loops
-		cookieFile:   "t-browser-cookies.json", // Default cookie storage file
+		forceUA:      userAgent,
+		maxRedirects: maxRedirects,
+		config:       config, // Store the config for later use
 	}
 
 	// Load cookies from persistent storage if available
@@ -154,7 +170,12 @@ func (c *HTTPClient) SetProxy(proxy *url.URL) {
 
 // loadCookiesFromFile loads cookies from persistent storage
 func (c *HTTPClient) loadCookiesFromFile() {
-	data, err := os.ReadFile(c.cookieFile)
+	cookieFile := "t-browser-cookies.json" // default
+	if c.config != nil && c.config.CookieFile != "" {
+		cookieFile = c.config.CookieFile
+	}
+
+	data, err := os.ReadFile(cookieFile)
 	if err != nil {
 		// File may not exist yet, which is fine
 		return
@@ -178,6 +199,11 @@ func (c *HTTPClient) loadCookiesFromFile() {
 
 // saveCookiesToFile saves cookies to persistent storage
 func (c *HTTPClient) saveCookiesToFile() {
+	cookieFile := "t-browser-cookies.json" // default
+	if c.config != nil && c.config.CookieFile != "" {
+		cookieFile = c.config.CookieFile
+	}
+
 	// Clean up expired cookies before saving
 	c.cleanupExpiredCookies()
 
@@ -192,7 +218,7 @@ func (c *HTTPClient) saveCookiesToFile() {
 		return
 	}
 
-	err = os.WriteFile(c.cookieFile, data, 0600) // Only readable/writable by owner
+	err = os.WriteFile(cookieFile, data, 0600) // Only readable/writable by owner
 	if err != nil {
 		// Log the error but continue
 	}
@@ -277,13 +303,15 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
 
-	// Add cookies if available
-	for _, cookie := range c.cookies {
-		if cookie.Matches(parsedURL) {
-			req.AddCookie(&http.Cookie{
-				Name:  cookie.Name,
-				Value: cookie.Value,
-			})
+	// Add cookies if available and enabled in config
+	if c.config == nil || c.config.EnableCookies {
+		for _, cookie := range c.cookies {
+			if cookie.Matches(parsedURL) {
+				req.AddCookie(&http.Cookie{
+					Name:  cookie.Name,
+					Value: cookie.Value,
+				})
+			}
 		}
 	}
 

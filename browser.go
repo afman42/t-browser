@@ -21,19 +21,40 @@ import (
 
 // NewBrowser creates a new browser instance
 func NewBrowser() *Browser {
+	// Initialize the configuration system
+	err := InitializeConfig()
+	if err != nil {
+		// If config init fails, continue with defaults
+	}
+
+	config, err := LoadConfig()
+	if err != nil {
+		// If loading config fails, use defaults
+		config = GetDefaultConfig()
+	}
+
+	// Create an HTTP client with the configuration
+	client := NewHTTPClient(&config)
+
 	browser := &Browser{
 		app:                       tview.NewApplication(),
 		history:                   make([]string, 0),
 		historyIndex:              -1,
-		client:                    NewHTTPClient(),
+		client:                    client,
 		cookies:                   make(map[string]*Cookie),
-		forceUA:                   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		forceUA:                   config.UserAgent,
 		loadingStop:               make(chan struct{}),
 		returningFromSearchResult: false,
+		config:                    &config,
 	}
 
-	// Handle proxy configuration
-	if proxyURL := os.Getenv("PROXY"); proxyURL != "" {
+	// Handle proxy configuration - prioritize config file over environment variable
+	if config.Proxy != "" {
+		if proxy, err := url.Parse(config.Proxy); err == nil {
+			browser.client.SetProxy(proxy)
+			browser.proxy = config.Proxy
+		}
+	} else if proxyURL := os.Getenv("PROXY"); proxyURL != "" {
 		if proxy, err := url.Parse(proxyURL); err == nil {
 			browser.client.SetProxy(proxy)
 			browser.proxy = proxyURL
@@ -149,7 +170,11 @@ func (b *Browser) GetAllCookies() []*Cookie {
 func (b *Browser) ClearCookies() {
 	b.client.cookies = make(map[string]*Cookie)
 	// Also clear the persistent storage
-	os.Remove(b.client.cookieFile)
+	cookieFile := "t-browser-cookies.json"
+	if b.config != nil && b.config.CookieFile != "" {
+		cookieFile = b.config.CookieFile
+	}
+	os.Remove(cookieFile)
 }
 
 // ClearCookiesForDomain removes cookies for a specific domain
@@ -165,11 +190,11 @@ func (b *Browser) ClearCookiesForDomain(domain string) {
 
 // Session represents the state of a browser session
 type Session struct {
-	History           []string  `json:"history"`
-	HistoryIndex      int       `json:"history_index"`
-	CurrentURL        string    `json:"current_url"`
-	SearchTerm        string    `json:"search_term"`
-	ForceUA           string    `json:"force_ua"`
+	History      []string `json:"history"`
+	HistoryIndex int      `json:"history_index"`
+	CurrentURL   string   `json:"current_url"`
+	SearchTerm   string   `json:"search_term"`
+	ForceUA      string   `json:"force_ua"`
 }
 
 // SaveSession saves the current browser state to a file
@@ -187,7 +212,7 @@ func (b *Browser) SaveSession(filename string) error {
 		return err
 	}
 
-	return os.WriteFile(filename, data, 0600)
+	return os.WriteFile(filename, data, 0o600)
 }
 
 // LoadSession loads a browser state from a file
@@ -215,7 +240,11 @@ func (b *Browser) LoadSession(filename string) error {
 // Run starts the browser application
 func (b *Browser) Run() error {
 	// Load previous session if available
-	b.LoadSession("t-browser-session.json")
+	sessionFile := "t-browser-session.json"
+	if b.config != nil && b.config.SessionFile != "" {
+		sessionFile = b.config.SessionFile
+	}
+	b.LoadSession(sessionFile)
 
 	// Create UI components
 	b.createUI()
@@ -265,7 +294,12 @@ func (b *Browser) Run() error {
 	b.client.saveCookiesToFile()
 
 	// Save the session state
-	b.SaveSession("t-browser-session.json")
+	if b.config != nil && b.config.SessionFile != "" {
+		sessionFile = b.config.SessionFile
+	}
+	if b.config != nil && b.config.SessionAutoSave {
+		b.SaveSession(sessionFile)
+	}
 
 	return nil
 }
