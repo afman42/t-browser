@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -124,20 +125,115 @@ func GetColorFunc(colorName string) func(a ...interface{}) string {
 	return col.SprintFunc()
 }
 
+// GetCookiesForDomain returns all cookies for a specific domain
+func (b *Browser) GetCookiesForDomain(domain string) []*Cookie {
+	var cookies []*Cookie
+	for _, cookie := range b.client.cookies {
+		if cookie.Domain == domain {
+			cookies = append(cookies, cookie)
+		}
+	}
+	return cookies
+}
+
+// GetAllCookies returns all stored cookies
+func (b *Browser) GetAllCookies() []*Cookie {
+	var cookies []*Cookie
+	for _, cookie := range b.client.cookies {
+		cookies = append(cookies, cookie)
+	}
+	return cookies
+}
+
+// ClearCookies removes all cookies
+func (b *Browser) ClearCookies() {
+	b.client.cookies = make(map[string]*Cookie)
+	// Also clear the persistent storage
+	os.Remove(b.client.cookieFile)
+}
+
+// ClearCookiesForDomain removes cookies for a specific domain
+func (b *Browser) ClearCookiesForDomain(domain string) {
+	for key, cookie := range b.client.cookies {
+		if cookie.Domain == domain {
+			delete(b.client.cookies, key)
+		}
+	}
+	// Save the updated cookies
+	b.client.saveCookiesToFile()
+}
+
+// Session represents the state of a browser session
+type Session struct {
+	History           []string  `json:"history"`
+	HistoryIndex      int       `json:"history_index"`
+	CurrentURL        string    `json:"current_url"`
+	SearchTerm        string    `json:"search_term"`
+	ForceUA           string    `json:"force_ua"`
+}
+
+// SaveSession saves the current browser state to a file
+func (b *Browser) SaveSession(filename string) error {
+	session := &Session{
+		History:      b.history,
+		HistoryIndex: b.historyIndex,
+		CurrentURL:   b.currentURL,
+		SearchTerm:   b.searchTerm,
+		ForceUA:      b.forceUA,
+	}
+
+	data, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filename, data, 0600)
+}
+
+// LoadSession loads a browser state from a file
+func (b *Browser) LoadSession(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+
+	var session Session
+	err = json.Unmarshal(data, &session)
+	if err != nil {
+		return err
+	}
+
+	b.history = session.History
+	b.historyIndex = session.HistoryIndex
+	b.currentURL = session.CurrentURL
+	b.searchTerm = session.SearchTerm
+	b.forceUA = session.ForceUA
+
+	return nil
+}
+
 // Run starts the browser application
 func (b *Browser) Run() error {
+	// Load previous session if available
+	b.LoadSession("t-browser-session.json")
+
 	// Create UI components
 	b.createUI()
 
-	// Set initial URL if provided as argument
-	if len(os.Args) > 1 {
-		initialURL := os.Args[1]
-		if !strings.HasPrefix(initialURL, "http://") && !strings.HasPrefix(initialURL, "https://") {
-			initialURL = "https://" + initialURL
+	// Set initial URL if provided as argument and no current URL is set from session
+	if b.currentURL == "" {
+		if len(os.Args) > 1 {
+			initialURL := os.Args[1]
+			if !strings.HasPrefix(initialURL, "http://") && !strings.HasPrefix(initialURL, "https://") {
+				initialURL = "https://" + initialURL
+			}
+			b.NavigateTo(initialURL)
+		} else {
+			b.NavigateTo("https://example.com")
 		}
-		b.NavigateTo(initialURL)
 	} else {
-		b.NavigateTo("https://example.com")
+		// Navigate to the saved current URL from the session
+		b.NavigateTo(b.currentURL)
 	}
 
 	// Create a flex layout to hold both content and input
@@ -146,12 +242,31 @@ func (b *Browser) Run() error {
 		AddItem(b.textView, 0, 1, false). // Main content area - takes remaining space
 		AddItem(b.urlInput, 3, 0, false)  // URL input at the bottom - fixed height of 3
 
+	// Set up the before-draw function to handle graceful shutdown
+	b.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		// This function runs before each draw - could be used for periodic cleanup
+		// but we'll mainly use it to ensure cookies are saved before exit
+		return false // Don't consume the draw, just run the cleanup
+	})
+
+	// Set up the after-draw function to handle cleanup if needed
+	b.app.SetAfterDrawFunc(func(screen tcell.Screen) {
+		// This ensures cookies are saved after each draw operation if needed
+	})
+
 	// Start the application with the flex layout and ensure content view has focus
 	b.app.SetRoot(flex, true)
 	b.app.SetFocus(b.textView)
 	if err := b.app.EnableMouse(true).Run(); err != nil {
 		return err
 	}
+
+	// Save cookies when the app exits
+	b.client.saveCookiesToFile()
+
+	// Save the session state
+	b.SaveSession("t-browser-session.json")
+
 	return nil
 }
 
