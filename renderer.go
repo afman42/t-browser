@@ -79,9 +79,8 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 
 	// Add title if available
 	if article.Title != "" {
-		// Sanitize the title to prevent formatting code injection
-		sanitizedTitle := b.sanitizeForTview(article.Title)
-		result.WriteString(fmt.Sprintf("[::b]%s[::-]\n", sanitizedTitle))
+		// Add a nicely formatted title with better styling
+		result.WriteString(fmt.Sprintf("[::b]%s[::-]\n\n", article.Title)) // Bold with extra spacing
 	}
 
 	// Clean up the extracted content to remove excessive whitespace
@@ -349,8 +348,8 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 	case html.TextNode:
 		text := strings.TrimSpace(node.Data)
 		if text != "" {
-			// Add indentation
-			for i := 0; i < *tabs; i++ {
+			// Add indentation if needed
+			if result.Len() > 0 && result.String()[result.Len()-1] != ' ' && result.String()[result.Len()-1] != '\n' {
 				result.WriteString(" ")
 			}
 			// Escape special characters that might interfere with tview formatting
@@ -365,29 +364,90 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 		tag := node.DataAtom.String()
 		isBlockElement := b.isBlockElement(tag)
 
-		// Handle special tags
+		// Handle special tags with improved formatting
 		switch tag {
-		case "h1", "h2", "h3", "h4", "h5", "h6":
+		case "h1":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("## ")
-			*tabs += 1
+			result.WriteString("[::b]# ")
+			*tabs += 2
+		case "h2":
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
+			result.WriteString("[::b]## ")
+			*tabs += 2
+		case "h3":
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
+			result.WriteString("[::b]### ")
+			*tabs += 2
+		case "h4":
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
+			result.WriteString("[::b]#### ")
+			*tabs += 2
+		case "h5":
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
+			result.WriteString("[::b]##### ")
+			*tabs += 2
+		case "h6":
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
+			result.WriteString("[::b]###### ")
+			*tabs += 2
 		case "p":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
+			for i := 0; i < *tabs; i++ {
+				result.WriteString("  ") // 2 spaces per tab level
+			}
+		case "b", "strong":
+			result.WriteString("[::b]") // Bold formatting
+		case "i", "em":
+			result.WriteString("[::i]") // Italic formatting
+		case "u", "ins":
+			result.WriteString("[::b]") // Bold instead of underline for emphasis
+		case "del", "s", "strike":
+			result.WriteString("~~") // Strikethrough formatting
+		case "code":
+			result.WriteString("`") // Code formatting
+		case "pre":
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
+			result.WriteString("```\n") // Code block start
+		case "blockquote":
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
+			for i := 0; i < *tabs; i++ {
+				result.WriteString("  ")
+			}
+			result.WriteString("> ") // Blockquote indicator
+			*tabs += 1
 		case "a":
-			// Just process the content without special formatting for now
+			// Add link formatting but keep the content readable
+			// We'll handle the link reference separately in the browser
 			break
 		case "ul", "ol":
 			*tabs += 1
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
 		case "li":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
 			for i := 0; i < *tabs-1; i++ {
-				result.WriteString(" ")
+				result.WriteString("  ") // 2 spaces per indentation level
 			}
 			if b.isParent(node, "ol") {
 				// Handle ordered list
@@ -402,10 +462,11 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			if isBlockElement && result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-		case "pre", "code":
+		case "hr":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
+			result.WriteString("---\n") // Horizontal rule
 		}
 
 		// Process children
@@ -413,20 +474,39 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			b.renderNode(child, result, tabs)
 		}
 
-		// Close tags
+		// Close tags with appropriate formatting
 		switch tag {
 		case "h1", "h2", "h3", "h4", "h5", "h6":
+			*tabs -= 2
+			result.WriteString("[-]\n") // Close bold formatting and add newline
+		case "b", "strong":
+			result.WriteString("[-]") // Close bold formatting
+		case "i", "em":
+			result.WriteString("[-]") // Close italic formatting
+		case "u", "ins":
+			result.WriteString("[-]") // Close underline formatting
+		case "del", "s", "strike":
+			result.WriteString("~~") // Close strikethrough formatting
+		case "code":
+			result.WriteString("`") // Close code formatting
+		case "pre":
+			result.WriteString("\n```") // Code block end
+		case "blockquote":
 			*tabs -= 1
-			result.WriteString("\n")
 		case "a":
 			if href, exists := b.getAttribute(node, "href"); exists {
-				result.WriteString(fmt.Sprintf(" (%s)", href))
+				// Format the link in a more readable way
+				result.WriteString(fmt.Sprintf(" [%s]", href))
 			}
 		case "ul", "ol":
 			*tabs -= 1
+			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+				result.WriteString("\n")
+			}
 		}
 
-		if isBlockElement && tag != "li" && tag != "h1" && tag != "h2" && tag != "h3" && tag != "h4" && tag != "h5" && tag != "h6" {
+		// Add newline after block elements (except for list items which are handled individually)
+		if isBlockElement && tag != "li" && tag != "h1" && tag != "h2" && tag != "h3" && tag != "h4" && tag != "h5" && tag != "h6" && tag != "pre" {
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
@@ -436,14 +516,33 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 
 // sanitizeForTview sanitizes text to prevent tview formatting code injection
 func (b *Browser) sanitizeForTview(text string) string {
-	// Escape square brackets which are used for tview formatting
-	result := strings.ReplaceAll(text, "[", "\\[")
-	result = strings.ReplaceAll(result, "]", "\\]")
+	// First, protect any existing tview formatting by temporarily replacing them
+	// This regex-like replacement looks for [:: followed by formatting chars and ]
+	protectedText := text
+	formattingRegex := [][2]string{
+		{"[::b]", "TBFMTBOLD"},
+		{"[::i]", "TBFMTITALIC"},
+		{"[-]", "TBFMTEND"},
+	}
+
+	// Replace formatting codes with temporary markers
+	for _, fmtPair := range formattingRegex {
+		protectedText = strings.ReplaceAll(protectedText, fmtPair[0], fmtPair[1])
+	}
+
+	// Now escape any remaining [ and ] that aren't part of formatting
+	protectedText = strings.ReplaceAll(protectedText, "[", "\\[")
+	protectedText = strings.ReplaceAll(protectedText, "]", "\\]")
+
+	// Restore the formatting codes
+	for _, fmtPair := range formattingRegex {
+		protectedText = strings.ReplaceAll(protectedText, fmtPair[1], fmtPair[0])
+	}
 
 	// Additional formatting characters that might be relevant
-	result = strings.ReplaceAll(result, "*", "\\*")
-	result = strings.ReplaceAll(result, "_", "\\_")
-	result = strings.ReplaceAll(result, "`", "\\`")
+	protectedText = strings.ReplaceAll(protectedText, "*", "\\*")
+	protectedText = strings.ReplaceAll(protectedText, "_", "\\_")
+	protectedText = strings.ReplaceAll(protectedText, "`", "\\`")
 
-	return result
+	return protectedText
 }
