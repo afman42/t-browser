@@ -209,8 +209,8 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				b.updateRightColumn(flex, leftList, category)
 			})
 		}
-		// Add the description as a static text item
-		rightForm.AddTextView(setting.Name, setting.Description, 0, 1, false, false)
+		// Add the description as a static text item with a unique label
+		rightForm.AddTextView("", setting.Description, 0, 1, false, false)
 	}
 
 	// Add save and cancel buttons only if settings have been changed
@@ -262,7 +262,7 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 		AddItem(rightForm, 0, 4, false)
 
 	// Set focus to the form so user can immediately start editing
-	b.rightColumnEmpty = false  // Mark that the right column is no longer empty
+	b.rightColumnEmpty = false // Mark that the right column is no longer empty
 	b.app.SetFocus(rightForm)
 }
 
