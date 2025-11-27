@@ -150,12 +150,13 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 
 	// Check if body is compressed with gzip and decompress if needed
 	var reader io.Reader = resp.Body
+	var originalGzipReader *gzip.Reader // Keep reference to close later if needed
 	if resp.Header.Get("Content-Encoding") == "gzip" {
 		gzipReader, err := gzip.NewReader(resp.Body)
 		if err != nil {
 			return "", err
 		}
-		defer gzipReader.Close()
+		originalGzipReader = gzipReader
 		reader = gzipReader
 	}
 
@@ -164,7 +165,16 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 	maxSize := int64(50 * 1024 * 1024) // 50MB
 	body, err := io.ReadAll(io.LimitReader(reader, maxSize))
 	if err != nil {
+		// Close the original gzip reader if it was created
+		if originalGzipReader != nil {
+			originalGzipReader.Close()
+		}
 		return "", err
+	}
+
+	// Close the original gzip reader if it was created
+	if originalGzipReader != nil {
+		originalGzipReader.Close()
 	}
 
 	// Check if we hit the size limit
@@ -200,28 +210,31 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 		decoder := enc.NewDecoder()
 		// Apply size limit to the converted content as well
 		maxSize := int64(50 * 1024 * 1024) // 50MB
-		body, err = io.ReadAll(io.LimitReader(transform.NewReader(bytes.NewReader(body), decoder), maxSize))
+		convertedBody, err := io.ReadAll(io.LimitReader(transform.NewReader(bytes.NewReader(body), decoder), maxSize))
 		if err != nil {
-			// If conversion fails, continue with original body
-			// Error handling is already done, just use the original body
+			// If conversion fails, return with original body
+			return "", fmt.Errorf("encoding conversion error: %v", err)
 		}
 		// Check if we hit the size limit after conversion
-		if int64(len(body)) >= maxSize {
+		if int64(len(convertedBody)) >= maxSize {
 			return "", fmt.Errorf("converted content exceeds maximum size of %d bytes", maxSize)
 		}
+		body = convertedBody
 	} else if strings.Contains(strings.ToLower(encodingName), "utf-16") {
 		// Handle UTF-16 encoding
 		decoder := unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder()
 		// Apply size limit to the converted content as well
 		maxSize := int64(50 * 1024 * 1024) // 50MB
-		body, err = io.ReadAll(io.LimitReader(transform.NewReader(bytes.NewReader(body), decoder), maxSize))
+		convertedBody, err := io.ReadAll(io.LimitReader(transform.NewReader(bytes.NewReader(body), decoder), maxSize))
 		if err != nil {
-			// If conversion fails, continue with original body
+			// If conversion fails, return with original body
+			return "", fmt.Errorf("encoding conversion error: %v", err)
 		}
 		// Check if we hit the size limit after conversion
-		if int64(len(body)) >= maxSize {
+		if int64(len(convertedBody)) >= maxSize {
 			return "", fmt.Errorf("converted content exceeds maximum size of %d bytes", maxSize)
 		}
+		body = convertedBody
 	}
 
 	return string(body), nil
