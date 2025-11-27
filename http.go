@@ -159,10 +159,17 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 		reader = gzipReader
 	}
 
-	// Read response body
-	body, err := io.ReadAll(reader)
+	// Read response body with size limit to prevent excessive memory usage
+	// Limit to 50MB to prevent memory exhaustion from very large documents
+	maxSize := int64(50 * 1024 * 1024) // 50MB
+	body, err := io.ReadAll(io.LimitReader(reader, maxSize))
 	if err != nil {
 		return "", err
+	}
+
+	// Check if we hit the size limit
+	if int64(len(body)) >= maxSize {
+		return "", fmt.Errorf("response body exceeds maximum size of %d bytes", maxSize)
 	}
 
 	// Verify the body is valid text by checking for binary content
@@ -191,17 +198,29 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 			enc = charmap.ISO8859_15
 		}
 		decoder := enc.NewDecoder()
-		body, err = io.ReadAll(transform.NewReader(bytes.NewReader(body), decoder))
+		// Apply size limit to the converted content as well
+		maxSize := int64(50 * 1024 * 1024) // 50MB
+		body, err = io.ReadAll(io.LimitReader(transform.NewReader(bytes.NewReader(body), decoder), maxSize))
 		if err != nil {
 			// If conversion fails, continue with original body
 			// Error handling is already done, just use the original body
 		}
+		// Check if we hit the size limit after conversion
+		if int64(len(body)) >= maxSize {
+			return "", fmt.Errorf("converted content exceeds maximum size of %d bytes", maxSize)
+		}
 	} else if strings.Contains(strings.ToLower(encodingName), "utf-16") {
 		// Handle UTF-16 encoding
 		decoder := unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder()
-		body, err = io.ReadAll(transform.NewReader(bytes.NewReader(body), decoder))
+		// Apply size limit to the converted content as well
+		maxSize := int64(50 * 1024 * 1024) // 50MB
+		body, err = io.ReadAll(io.LimitReader(transform.NewReader(bytes.NewReader(body), decoder), maxSize))
 		if err != nil {
 			// If conversion fails, continue with original body
+		}
+		// Check if we hit the size limit after conversion
+		if int64(len(body)) >= maxSize {
+			return "", fmt.Errorf("converted content exceeds maximum size of %d bytes", maxSize)
 		}
 	}
 
