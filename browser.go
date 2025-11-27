@@ -20,7 +20,6 @@ import (
 	_ "image/png"
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/webp"
-	"io/ioutil"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
@@ -878,7 +877,7 @@ func (b *Browser) showImagePreview(imageURL string) {
 		contentType = resp.Header.Get("Content-Type")
 
 		// Read the image data with size limit
-		imgData, err := ioutil.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit
+		imgData, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit
 		if err != nil {
 			// Stop the animation
 			close(loadingStop)
