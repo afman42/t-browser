@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -47,7 +46,7 @@ func (b *Browser) createUI() {
 			case 'j': // Scroll down OR navigate to next link if modal is open
 				// For scrolling content, just scroll down by 10 lines
 				currentRow, _ := b.textView.GetScrollOffset()
-				b.textView.ScrollTo(currentRow + 10, 0)
+				b.textView.ScrollTo(currentRow+10, 0)
 				return nil
 			case 'k': // Scroll up OR navigate to previous link if modal is open
 				// For scrolling content, just scroll up by 10 lines (with minimum of 0)
@@ -73,7 +72,7 @@ func (b *Browser) createUI() {
 				return nil
 			case 'J': // Alternative: just scroll down regardless of links
 				currentRow, _ := b.textView.GetScrollOffset()
-				b.textView.ScrollTo(currentRow + 10, 0)
+				b.textView.ScrollTo(currentRow+10, 0)
 				return nil
 			case 'K': // Alternative: just scroll up regardless of links
 				currentRow, _ := b.textView.GetScrollOffset()
@@ -223,11 +222,11 @@ Press any key to close this help.`
 		// Restore the proper flex layout with URL input
 		flex := tview.NewFlex().
 			SetDirection(tview.FlexRow).
-			AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
-			AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
+			AddItem(b.textView, 0, 1, false). // Main content area - takes remaining space
+			AddItem(b.urlInput, 3, 0, false)  // URL input at the bottom - fixed height of 3
 
 		b.app.SetRoot(flex, true)
-		b.app.SetFocus(b.textView)  // Ensure content view has focus after help
+		b.app.SetFocus(b.textView) // Ensure content view has focus after help
 	})
 
 	// Set the help view as root

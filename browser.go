@@ -1,64 +1,33 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/atotto/clipboard"
-	"github.com/fatih/color"
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
-	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+
+	"github.com/fatih/color"
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/webp"
-	"golang.org/x/net/html"
-	"golang.org/x/net/html/atom"
 )
-
-
-// Browser represents the terminal browser instance
-type Browser struct {
-	app             *tview.Application
-	textView        *tview.TextView
-	urlInput        *tview.InputField
-	history         []string
-	historyIndex    int
-	client          *HTTPClient
-	cookies         map[string]*Cookie
-	proxy           string
-	currentURL      string
-	searchTerm      string
-	originalContent string // Store original content for search
-	links           []Link  // Store links found on the page
-	images          []Image // Store images found on the page
-	currentLinkIndex int   // Index of currently highlighted link
-	forceUA         string
-	loadingView     *tview.TextView
-	isLoading       bool
-	loadingStop     chan struct{} // Channel to signal loading animation to stop
-	searchMatches   []SearchMatch // Store search matches for navigation
-	returningFromSearchResult bool // Flag to track if returning from a selected search result
-}
 
 // NewBrowser creates a new browser instance
 func NewBrowser() *Browser {
 	browser := &Browser{
-		app:          tview.NewApplication(),
-		history:      make([]string, 0),
-		historyIndex: -1,
-		client:       NewHTTPClient(),
-		cookies:      make(map[string]*Cookie),
-		forceUA:      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-		loadingStop:  make(chan struct{}),
+		app:                       tview.NewApplication(),
+		history:                   make([]string, 0),
+		historyIndex:              -1,
+		client:                    NewHTTPClient(),
+		cookies:                   make(map[string]*Cookie),
+		forceUA:                   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		loadingStop:               make(chan struct{}),
 		returningFromSearchResult: false,
 	}
 
@@ -174,8 +143,8 @@ func (b *Browser) Run() error {
 	// Create a flex layout to hold both content and input
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
-		AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
+		AddItem(b.textView, 0, 1, false). // Main content area - takes remaining space
+		AddItem(b.urlInput, 3, 0, false)  // URL input at the bottom - fixed height of 3
 
 	// Start the application with the flex layout and ensure content view has focus
 	b.app.SetRoot(flex, true)
@@ -184,136 +153,6 @@ func (b *Browser) Run() error {
 		return err
 	}
 	return nil
-}
-
-// createUI creates the terminal UI components
-func (b *Browser) createUI() {
-	// Text view to display web content
-	b.textView = tview.NewTextView()
-	b.textView.SetDynamicColors(true)
-	b.textView.SetRegions(true)
-	b.textView.SetWordWrap(true)
-	b.textView.SetScrollable(true)
-	b.textView.SetBorder(true)
-	b.textView.SetTitle("Terminal Browser - Press Ctrl+C to quit, / for search")
-
-	// Handle key events
-	b.textView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyCtrlC:
-			b.app.Stop()
-			return nil
-		case tcell.KeyEnter:
-			// For now, Enter doesn't follow links directly in content
-			// Users should use the 'l' key to see the modal list of links
-			return nil
-		case tcell.KeyRune:
-			switch event.Rune() {
-			case 'q':
-				b.app.Stop()
-				return nil
-			case 'b': // Back button
-				b.GoBack()
-				return nil
-			case 'f': // Forward button
-				b.GoForward()
-				return nil
-			case '/': // Search
-				b.startSearch()
-				return nil
-			case 'j': // Scroll down OR navigate to next link if modal is open
-				// For scrolling content, just scroll down by 10 lines
-				currentRow, _ := b.textView.GetScrollOffset()
-				b.textView.ScrollTo(currentRow + 10, 0)
-				return nil
-			case 'k': // Scroll up OR navigate to previous link if modal is open
-				// For scrolling content, just scroll up by 10 lines (with minimum of 0)
-				currentRow, _ := b.textView.GetScrollOffset()
-				newRow := currentRow - 10
-				if newRow < 0 {
-					newRow = 0
-				}
-				b.textView.ScrollTo(newRow, 0)
-				return nil
-			case 'l': // Show list of all links in a modal
-				if len(b.links) > 0 {
-					b.showLinksModal()
-				} else if len(b.images) > 0 {
-					// If no links but images exist, show images modal
-					b.showImagesModal()
-				}
-				return nil
-			case 'i': // Show list of all images in a modal
-				if len(b.images) > 0 {
-					b.showImagesModal()
-				}
-				return nil
-			case 'J': // Alternative: just scroll down regardless of links
-				currentRow, _ := b.textView.GetScrollOffset()
-				b.textView.ScrollTo(currentRow + 10, 0)
-				return nil
-			case 'K': // Alternative: just scroll up regardless of links
-				currentRow, _ := b.textView.GetScrollOffset()
-				newRow := currentRow - 10
-				if newRow < 0 {
-					newRow = 0
-				}
-				b.textView.ScrollTo(newRow, 0)
-				return nil
-			case '?': // Show help/usage information
-				b.showHelp()
-				return nil
-			case '\t': // Tab key to switch to URL input
-				b.app.SetFocus(b.urlInput)
-				return nil
-			}
-		}
-
-		// Also handle tcell.KeyTAB for consistency
-		if event.Key() == tcell.KeyTAB {
-			b.app.SetFocus(b.urlInput)
-			return nil
-		}
-
-		return event
-	})
-
-	// URL input field
-	b.urlInput = tview.NewInputField()
-	b.urlInput.SetBorder(true)
-	b.urlInput.SetTitle("Enter URL")
-	b.urlInput.SetDoneFunc(func(key tcell.Key) {
-		if key == tcell.KeyEnter {
-			url := b.urlInput.GetText()
-			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-				url = "https://" + url
-			}
-			b.NavigateTo(url)
-			b.app.SetFocus(b.textView)
-		} else if key == tcell.KeyEscape {
-			b.app.SetFocus(b.textView)
-		}
-	})
-	// Capture tab to switch back to content view and enhance text input handling
-	b.urlInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyTAB {
-			b.app.SetFocus(b.textView)
-			return nil // Consume the event
-		}
-		// Handle 'p' key to paste from clipboard
-		if event.Key() == tcell.KeyRune && event.Rune() == 'p' {
-			// Get text from clipboard
-			clipText, err := clipboard.ReadAll()
-			if err == nil {
-				// Set the clipboard content to the input field
-				b.urlInput.SetText(clipText)
-			}
-			return nil // Consume the event
-		}
-		return event
-	})
-
-	// Layout is set in the Run function
 }
 
 // shouldDisableWordWrap analyzes the content to decide if word wrap should be disabled
@@ -449,198 +288,6 @@ func (b *Browser) GoForward() {
 	}
 }
 
-// showHelp displays help and usage information
-func (b *Browser) showHelp() {
-	helpText := `Terminal Browser - Help & Usage
-
-Navigation:
-  j     - Scroll down content
-  k     - Scroll up content
-  l     - Show modal list of all links on page (or images if no links)
-  i     - Show modal list of all images on page
-  Enter - Confirm selection in modal
-  b     - Go back in history
-  f     - Go forward in history
-
-Link Handling:
-  - Links marked with [IMAGE] for detected images, [IMAGE*] for real extensions
-  - Press Enter on any link to navigate to that page
-  - Image links preview directly in terminal when selected
-
-Image Handling:
-  - Supports formats: JPG, PNG, GIF, BMP, WebP, SVG, ICO, TIFF
-  - Press 'i' to view all images on the current page
-  - Each image shows alt text, title, URL, and file extension
-  - Automatic size checking (max 5MB) to prevent large downloads
-  - Images render directly in terminal using block characters
-  - Press Enter on any image to preview it in terminal
-
-Search:
-  /     - Real-time search with match highlighting
-
-Interface:
-  Tab   - Switch between content view and URL input box
-  ?     - Show this help information
-  q     - Quit browser
-  Ctrl+C - Quit browser
-
-URL Input:
-  - Type URL in the bottom input box and press Enter
-  - Automatically adds 'https://' if no protocol specified
-  - Press Tab to return to content view
-  - For long URLs: use ← and → arrow keys to navigate within the input field
-  - The input field shows a portion of long URLs; use arrow keys to see more
-
-Clipboard:
-  - Press 'p' when in URL input field to paste URL from clipboard
-
-Loading Indicators:
-  - Animated "Loading..." indicator appears when fetching pages
-  - Shows progress during page loading
-  - Automatically disappears when content loads
-
-Security Features:
-  - Blocks dangerous URL schemes (javascript:, data:, etc.)
-  - Prevents access to local/internal addresses
-  - Limits redirect chains to prevent loops
-  - Sanitizes input to prevent formatting code injection
-  - Size protection limits image downloads to 5MB
-
-Content Processing:
-  - Extracts main content and removes ads/navigation
-  - Preserves basic formatting and structure
-  - Identifies and presents all visible links in modal list
-  - Supports multiple character encodings (UTF-8, Latin-1, etc.)
-
-Accessibility Features:
-  - Full keyboard navigation
-  - Clear visual indicators
-  - High contrast highlighting
-  - Readable text formatting
-  - Responsive controls
-
-Press any key to close this help.`
-
-	// Create a modal help view
-	helpView := tview.NewTextView()
-	helpView.SetTextColor(tcell.ColorWhite)
-	helpView.SetBackgroundColor(tcell.ColorNavy)
-	helpView.SetDynamicColors(true)
-	helpView.SetRegions(false)
-	helpView.SetText(helpText)
-	helpView.SetDoneFunc(func(key tcell.Key) {
-		// Close help when any key is pressed
-		// Restore the proper flex layout with URL input
-		flex := tview.NewFlex().
-			SetDirection(tview.FlexRow).
-			AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
-			AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
-
-		b.app.SetRoot(flex, true)
-		b.app.SetFocus(b.textView)  // Ensure content view has focus after help
-	})
-
-	// Set the help view as root
-	b.app.SetRoot(helpView, true)
-}
-
-// isBlockElement checks if the tag is a block-level element
-func (b *Browser) isBlockElement(tag string) bool {
-	blockElements := map[string]bool{
-		"address": true, "article": true, "aside": true, "blockquote": true,
-		"details": true, "dialog": true, "dd": true, "div": true,
-		"dl": true, "dt": true, "fieldset": true, "figcaption": true,
-		"figure": true, "footer": true, "form": true, "h1": true,
-		"h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
-		"header": true, "hgroup": true, "hr": true, "li": true,
-		"main": true, "nav": true, "ol": true, "p": true,
-		"pre": true, "section": true, "table": true, "ul": true,
-		"tr": true, "td": true, "th": true, "thead": true,
-		"tbody": true, "tfoot": true,
-	}
-	return blockElements[tag]
-}
-
-// getAttribute gets an attribute value from an HTML node
-func (b *Browser) getAttribute(node *html.Node, attrName string) (string, bool) {
-	for _, attr := range node.Attr {
-		if attr.Key == attrName {
-			return attr.Val, true
-		}
-	}
-	return "", false
-}
-
-// isParent checks if any ancestor has the specified tag
-func (b *Browser) isParent(node *html.Node, tag string) bool {
-	parent := node.Parent
-	for parent != nil {
-		if parent.DataAtom.String() == tag {
-			return true
-		}
-		parent = parent.Parent
-	}
-	return false
-}
-
-// getListItemIndex calculates the index of a list item in an ordered list
-func (b *Browser) getListItemIndex(node *html.Node) int {
-	index := 1
-	current := node.PrevSibling
-	
-	for current != nil {
-		if current.Type == html.ElementNode && current.DataAtom == atom.Li {
-			index++
-		}
-		current = current.PrevSibling
-	}
-	
-	return index
-}
-
-// validateAndSanitizeURL validates and sanitizes the input URL
-func (b *Browser) validateAndSanitizeURL(inputURL string) (string, error) {
-	// Basic validation to check for potentially malicious schemes
-	if strings.HasPrefix(inputURL, "javascript:") || strings.HasPrefix(inputURL, "data:") ||
-	   strings.HasPrefix(inputURL, "vbscript:") || strings.HasPrefix(inputURL, "file:") {
-		return "", fmt.Errorf("unsupported or dangerous URL scheme")
-	}
-
-	// Check if the URL is empty
-	if strings.TrimSpace(inputURL) == "" {
-		return "", fmt.Errorf("URL cannot be empty")
-	}
-
-	// Check for excessive length to prevent potential buffer overflow
-	if len(inputURL) > 2048 {
-		return "", fmt.Errorf("URL is too long")
-	}
-
-	// Parse the URL to validate its structure
-	parsedURL, err := url.Parse(inputURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL format: %v", err)
-	}
-
-	// Validate the host to ensure it's not pointing to internal addresses
-	host := parsedURL.Hostname()
-	if host == "localhost" || strings.HasPrefix(host, "127.") ||
-	   strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") ||
-	   (strings.HasPrefix(host, "172.") && len(host) > 4 &&
-	    host[4] >= '1' && host[4] <= '3' && host[5] == '.') {
-		// Allow these only if explicitly enabled, for security
-		return "", fmt.Errorf("access to local/internal addresses not allowed")
-	}
-
-	// Check for suspicious patterns in the URL
-	if strings.Contains(inputURL, "..") || strings.Contains(inputURL, "0x00") {
-		return "", fmt.Errorf("URL contains suspicious patterns")
-	}
-
-	// Return the validated URL
-	return inputURL, nil
-}
-
 // showLoadingIndicator shows the animated loading indicator
 func (b *Browser) showLoadingIndicator() {
 	if b.isLoading {
@@ -705,639 +352,6 @@ func (b *Browser) animateLoading() {
 	}
 }
 
-// hasRealImageExtension checks if a URL has a real image file extension
-func (b *Browser) hasRealImageExtension(url string) bool {
-	// Check file extension first
-	imageExtensions := []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".tif"}
-
-	// Convert URL to lower case for comparison
-	lowerURL := strings.ToLower(url)
-
-	for _, ext := range imageExtensions {
-		if strings.HasSuffix(lowerURL, ext) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// isImageURL checks if a URL points to an image based on extension or content type
-func (b *Browser) isImageURL(url string) bool {
-	// First check if it has a real image extension
-	if b.hasRealImageExtension(url) {
-		return true
-	}
-
-	// If no extension found in URL, try to check the content type by making a HEAD request
-	resp, err := http.Head(url)
-	if err != nil {
-		// If we can't make the request, fall back to the extension check
-		return false
-	}
-	defer resp.Body.Close()
-
-	// Check the content type header
-	contentType := resp.Header.Get("Content-Type")
-	if strings.HasPrefix(contentType, "image/") {
-		return true
-	}
-
-	return false
-}
-
-// showAnimatedImageLoading shows animated loading text for image preview
-func (b *Browser) showAnimatedImageLoading(imageInfo *tview.TextView, imageURL string, stopChan chan struct{}) {
-	// Animation sequence: Loading, Loading., Loading.., Loading...
-	phases := []string{"Loading", "Loading.", "Loading..", "Loading..."}
-	currentPhase := 0
-
-	for {
-		select {
-		case <-stopChan:
-			// Stop animation
-			return
-		default:
-			// Update the loading text with the current phase
-			animationText := fmt.Sprintf("[yellow]%s %s[white]", phases[currentPhase], imageURL)
-
-			// Update the text in the main goroutine to prevent race conditions
-			b.app.QueueUpdateDraw(func() {
-				if imageInfo != nil {
-					imageInfo.SetText(animationText)
-				}
-			})
-
-			// Move to the next phase
-			currentPhase = (currentPhase + 1) % len(phases)
-
-			// Wait before updating again
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
-}
-
-// showImagePreview shows a modal with an actual image preview in terminal
-func (b *Browser) showImagePreview(imageURL string) {
-	// Create a TextView to show image info
-	imageInfo := tview.NewTextView()
-	imageInfo.SetTextColor(tcell.ColorWhite)
-	imageInfo.SetBackgroundColor(tcell.ColorNavy)
-	imageInfo.SetDynamicColors(true)
-	imageInfo.SetText(fmt.Sprintf("[yellow]Loading... %s[white]", imageURL))
-	imageInfo.SetBorder(true)
-	imageInfo.SetTitle("Image Preview")
-
-	// Create the image widget
-	imgWidget := tview.NewImage()
-	imgWidget.SetBorder(true)
-	imgWidget.SetTitle("Image Preview - Press 'q' or ESC to close")
-
-	// Create a Flex layout for the image preview
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(imageInfo, 3, 0, false).  // Show image URL at top
-		AddItem(imgWidget, 0, 1, true)    // Show image in middle
-
-	// Create a stop channel for the loading animation
-	loadingStop := make(chan struct{})
-
-	// Start the animated loading
-	go b.showAnimatedImageLoading(imageInfo, imageURL, loadingStop)
-
-	// Update image info to show loading
-	go func() {
-		// First check content length with a HEAD request to avoid downloading large files
-		headResp, err := http.Head(imageURL)
-		if err != nil {
-			// Stop the animation
-			close(loadingStop)
-
-			b.app.QueueUpdateDraw(func() {
-				imageInfo.SetText(fmt.Sprintf("Error getting image info: %v", err))
-				imgWidget.SetImage(nil) // Clear image
-			})
-			return
-		}
-		defer headResp.Body.Close()
-
-		// Check if the response is actually an image
-		contentType := headResp.Header.Get("Content-Type")
-		if !strings.HasPrefix(contentType, "image/") {
-			// Stop the animation
-			close(loadingStop)
-
-			b.app.QueueUpdateDraw(func() {
-				imageInfo.SetText(fmt.Sprintf("URL does not point to an image (content type: %s)", contentType))
-				imgWidget.SetImage(nil) // Clear image
-			})
-			return
-		}
-
-		// Check content length (size) - max 5MB (5 * 1024 * 1024 bytes = 5,242,880 bytes)
-		contentLength := headResp.Header.Get("Content-Length")
-		if contentLength != "" {
-			var size int64
-			fmt.Sscanf(contentLength, "%d", &size)
-			if size > 5*1024*1024 { // 5MB limit
-				// Stop the animation
-				close(loadingStop)
-
-				b.app.QueueUpdateDraw(func() {
-					imageInfo.SetText(fmt.Sprintf("Image is too large (%.2f MB > 5 MB)", float64(size)/(1024*1024)))
-					imgWidget.SetImage(nil) // Clear image
-				})
-				return
-			}
-		}
-
-		// Load the image in a goroutine to prevent blocking
-		resp, err := http.Get(imageURL)
-		if err != nil {
-			// Stop the animation
-			close(loadingStop)
-
-			// Show error using app.QueueUpdateDraw
-			b.app.QueueUpdateDraw(func() {
-				imageInfo.SetText(fmt.Sprintf("Error loading image: %v", err))
-				imgWidget.SetImage(nil) // Clear image
-			})
-			return
-		}
-		defer resp.Body.Close()
-
-		// Check if the response is actually an image again (in case it changed)
-		// However, we should be more permissive since some servers return wrong content-types
-		contentType = resp.Header.Get("Content-Type")
-
-		// Read the image data with size limit
-		imgData, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit
-		if err != nil {
-			// Stop the animation
-			close(loadingStop)
-
-			b.app.QueueUpdateDraw(func() {
-				imageInfo.SetText(fmt.Sprintf("Error reading image: %v", err))
-				imgWidget.SetImage(nil) // Clear image
-			})
-			return
-		}
-
-		// Check if we reached the size limit
-		if len(imgData) >= 5*1024*1024 {
-			// Stop the animation
-			close(loadingStop)
-
-			b.app.QueueUpdateDraw(func() {
-				imageInfo.SetText("Image is too large (exceeds 5 MB limit)")
-				imgWidget.SetImage(nil) // Clear image
-			})
-			return
-		}
-
-		// Decode the image - we'll try to decode it regardless of content-type header
-		// since some servers return incorrect content-type headers
-		img, format, err := image.Decode(bytes.NewReader(imgData))
-		if err != nil {
-			// Stop the animation
-			close(loadingStop)
-
-			b.app.QueueUpdateDraw(func() {
-				imageInfo.SetText(fmt.Sprintf("Error decoding image (content-type: %s): %v", contentType, err))
-				imgWidget.SetImage(nil) // Clear image
-			})
-			return
-		}
-
-		// Stop the animation
-		close(loadingStop)
-
-		// Update the image widget with the decoded image
-		b.app.QueueUpdateDraw(func() {
-			imgWidget.SetImage(img)
-			imageInfo.SetText(fmt.Sprintf("Image loaded: %s (Format: %s, Size: %dx%d)", imageURL, format, img.Bounds().Dx(), img.Bounds().Dy()))
-		})
-	}()
-
-	// Set up key handling for the image preview
-	flex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
-			// Return to the images modal
-			b.showImagesModal()
-			return nil
-		}
-		return event
-	})
-
-	// Set the flex layout as root
-	b.app.SetRoot(flex, true)
-}
-
-// downloadImage downloads an image from URL to a temporary location
-func (b *Browser) downloadImage(imageURL string) error {
-	// Create an HTTP client
-	client := &http.Client{}
-
-	// Make the GET request
-	resp, err := client.Get(imageURL)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	// Check if the response is an image
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") {
-		return fmt.Errorf("URL does not point to an image (content type: %s)", contentType)
-	}
-
-	// Check content length from the response if available
-	contentLength := resp.Header.Get("Content-Length")
-	if contentLength != "" {
-		var size int64
-		fmt.Sscanf(contentLength, "%d", &size)
-		if size > 5*1024*1024 { // 5MB limit
-			return fmt.Errorf("image too large (%d bytes > 5 MB)", size)
-		}
-	}
-
-	// Read the image data with size limit to prevent downloading very large files
-	// Use the same 5MB limit as in showImagePreview
-	imgData, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit
-	if err != nil {
-		return err
-	}
-
-	// Check if we reached the size limit
-	if len(imgData) >= 5*1024*1024 {
-		return fmt.Errorf("image is too large (exceeds 5 MB limit)")
-	}
-
-	return nil
-}
-
-// showImageErrorModal shows an error modal for image operations
-func (b *Browser) showImageErrorModal(errorMessage string) {
-	errorModal := tview.NewModal()
-	errorModal.SetBorder(true)
-	errorModal.SetTitle("Image Error")
-	errorModal.SetText(errorMessage)
-	errorModal.AddButtons([]string{"OK"})
-
-	errorModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-		// Return to the links modal after showing error
-		b.showLinksModal()
-	})
-
-	// Set up key handling for the modal
-	errorModal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
-			// Return to links list
-			b.showLinksModal()
-			return nil
-		}
-		return event
-	})
-
-	b.app.SetRoot(errorModal, true)
-}
-
-// showImageSuccessModal shows a success modal for image operations
-func (b *Browser) showImageSuccessModal(successMessage string) {
-	successModal := tview.NewModal()
-	successModal.SetBorder(true)
-	successModal.SetTitle("Success")
-	successModal.SetText(successMessage)
-	successModal.AddButtons([]string{"OK"})
-
-	successModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-		// Return to the links modal after showing success
-		b.showLinksModal()
-	})
-
-	// Set up key handling for the modal
-	successModal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
-			// Return to links list
-			b.showLinksModal()
-			return nil
-		}
-		return event
-	})
-
-	b.app.SetRoot(successModal, true)
-}
-
-// showImagesModal displays a modal with a list of all images on the page with pagination
-func (b *Browser) showImagesModal() {
-	if len(b.images) == 0 {
-		return
-	}
-
-	// Show the first page of images
-	b.showImagesModalPage(0)
-}
-
-// showImagesModalPage displays a specific page of images in the modal
-func (b *Browser) showImagesModalPage(page int) {
-	if len(b.images) == 0 {
-		return
-	}
-
-	// Calculate pagination
-	totalItems := len(b.images)
-	totalPages := (totalItems + ItemsPerPage - 1) / ItemsPerPage // Ceiling division
-	if page < 0 {
-		page = 0
-	}
-	if page >= totalPages {
-		page = totalPages - 1
-	}
-
-	// Calculate start and end indices for this page
-	startIndex := page * ItemsPerPage
-	endIndex := startIndex + ItemsPerPage
-	if endIndex > totalItems {
-		endIndex = totalItems
-	}
-
-	// Show loading indicator first if there are many images
-	if len(b.images) > 50 { // Only show loading for larger lists
-		b.showLoadingModal("Loading Images", fmt.Sprintf("[yellow]Loading images page %d of %d...[white]", page+1, totalPages))
-	}
-
-	// Create a new list for images
-	imageList := tview.NewList()
-	imageList.SetBorder(true)
-	imageList.SetTitle(fmt.Sprintf("Images on this page (Page %d of %d)", page+1, totalPages))
-	imageList.ShowSecondaryText(true)
-
-	// Add images for this page
-	for i := startIndex; i < endIndex; i++ {
-		img := b.images[i]
-
-		// Create title for the image
-		imgTitle := img.Alt
-		if imgTitle == "" {
-			// If no alt text, use a generic description
-			imgTitle = fmt.Sprintf("Image %d", i+1)
-		}
-
-		// Don't truncate text when there are many images, just display as is
-		// Extract the file extension from the URL
-		ext := "unknown"
-		lastDot := strings.LastIndex(img.URL, ".")
-		if lastDot != -1 && lastDot < len(img.URL)-1 {
-			ext = strings.ToLower(img.URL[lastDot+1:])
-			// Handle query parameters that might follow the extension
-			if queryIndex := strings.Index(ext, "?"); queryIndex != -1 {
-				ext = ext[:queryIndex]
-			}
-		}
-
-		// Format the image URL to show in secondary text with file extension, truncating long URLs
-		urlToShow := fmt.Sprintf("%s [%s]", img.URL, ext)
-		if len(urlToShow) > 70 {
-			urlToShow = urlToShow[:70] + "..."
-		}
-
-		// Add the item with primary text as image title and secondary as URL with extension
-		imageList.AddItem(imgTitle, urlToShow, 0, func(index int) func() {
-			return func() {
-				// Show image preview
-				b.showImagePreview(b.images[index].URL)
-			}
-		}(i))
-	}
-
-	// Add pagination controls if there are multiple pages
-	if totalPages > 1 {
-		// Add previous page button if not on the first page
-		if page > 0 {
-			imageList.AddItem("Previous Page", fmt.Sprintf("Go to page %d", page), 'p', func() {
-				b.showImagesModalPage(page - 1)
-			})
-		}
-
-		// Add next page button if not on the last page
-		if page < totalPages - 1 {
-			imageList.AddItem("Next Page", fmt.Sprintf("Go to page %d", page + 2), 'n', func() {
-				b.showImagesModalPage(page + 1)
-			})
-		}
-	}
-
-	// Add a close option
-	imageList.AddItem("Close", "Close the images list", 'c', func() {
-		// Close the modal by returning to main view
-		flex := tview.NewFlex().
-			SetDirection(tview.FlexRow).
-			AddItem(b.textView, 0, 1, false).
-			AddItem(b.urlInput, 3, 0, false)
-		b.app.SetRoot(flex, true)
-		b.app.SetFocus(b.textView)
-	})
-
-	// Add a link list option to return to the links modal
-	imageList.AddItem("View Links", "Return to links list", 'l', func() {
-		b.showLinksModal()
-	})
-
-	// Set up key handling for the modal
-	imageList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEscape:
-			fallthrough
-		case tcell.KeyRune:
-			if event.Rune() == 'q' {
-				// Close the modal by returning to main view
-				flex := tview.NewFlex().
-					SetDirection(tview.FlexRow).
-					AddItem(b.textView, 0, 1, false).
-					AddItem(b.urlInput, 3, 0, false)
-				b.app.SetRoot(flex, true)
-				b.app.SetFocus(b.textView)
-				return nil
-			} else if event.Rune() == 'n' && totalPages > 1 && page < totalPages-1 {
-				// Go to next page
-				b.showImagesModalPage(page + 1)
-				return nil
-			} else if event.Rune() == 'p' && totalPages > 1 && page > 0 {
-				// Go to previous page
-				b.showImagesModalPage(page - 1)
-				return nil
-			}
-		}
-		return event
-	})
-
-	// Set the list as root (this removes the loading indicator)
-	b.app.SetRoot(imageList, true)
-}
-
-// showLinksModal displays a modal with a list of all links on the page with pagination
-func (b *Browser) showLinksModal() {
-	if len(b.links) == 0 {
-		return
-	}
-
-	// Show the first page of links
-	b.showLinksModalPage(0)
-}
-
-// showLinksModalPage displays a specific page of links in the modal
-func (b *Browser) showLinksModalPage(page int) {
-	if len(b.links) == 0 {
-		return
-	}
-
-	// Calculate pagination
-	totalItems := len(b.links)
-	totalPages := (totalItems + ItemsPerPage - 1) / ItemsPerPage // Ceiling division
-	if page < 0 {
-		page = 0
-	}
-	if page >= totalPages {
-		page = totalPages - 1
-	}
-
-	// Calculate start and end indices for this page
-	startIndex := page * ItemsPerPage
-	endIndex := startIndex + ItemsPerPage
-	if endIndex > totalItems {
-		endIndex = totalItems
-	}
-
-	// Show loading indicator first if there are many links
-	if len(b.links) > 50 { // Only show loading for larger lists
-		b.showLoadingModal("Loading Links", fmt.Sprintf("[yellow]Loading links page %d of %d...[white]", page+1, totalPages))
-	}
-
-	// Create a new list for links
-	linkList := tview.NewList()
-	linkList.SetBorder(true)
-	linkList.SetTitle(fmt.Sprintf("Links on this page (Page %d of %d)", page+1, totalPages))
-	linkList.ShowSecondaryText(true)
-
-	// Add links for this page
-	for i := startIndex; i < endIndex; i++ {
-		link := b.links[i]
-		linkText := link.Text
-		// Don't truncate text when there are many links, just display as is
-		// Check if the link is an image
-		isImage := b.isImageURL(link.URL)
-		hasRealExt := b.hasRealImageExtension(link.URL)
-		if isImage {
-			if hasRealExt {
-				linkText += " [IMAGE*]" // Indicate that this is an image with real extension
-			} else {
-				linkText += " [IMAGE]" // Indicate that this is an image (detected by content type)
-			}
-		}
-
-		// Format the URL to show just the domain and path, truncating long paths
-		urlToShow := link.URL
-		if len(urlToShow) > 70 {
-			urlToShow = urlToShow[:70] + "..."
-		}
-
-		// Add the item with primary text as link text and secondary as URL
-		linkList.AddItem(linkText, urlToShow, 0, func(index int, isImg bool, hasExt bool) func() {
-			return func() {
-				if isImg {
-					// Show image preview instead of navigating
-					b.showImagePreview(b.links[index].URL)
-				} else {
-					// Navigate to the selected link
-					b.NavigateTo(b.links[index].URL)
-					// Close the modal by returning to main view
-					flex := tview.NewFlex().
-						SetDirection(tview.FlexRow).
-						AddItem(b.textView, 0, 1, false).
-						AddItem(b.urlInput, 3, 0, false)
-					b.app.SetRoot(flex, true)
-					b.app.SetFocus(b.textView)
-				}
-			}
-		}(i, isImage, hasRealExt))
-	}
-
-	// Add pagination controls if there are multiple pages
-	if totalPages > 1 {
-		// Add previous page button if not on the first page
-		if page > 0 {
-			linkList.AddItem("Previous Page", fmt.Sprintf("Go to page %d", page), 'p', func() {
-				b.showLinksModalPage(page - 1)
-			})
-		}
-
-		// Add next page button if not on the last page
-		if page < totalPages - 1 {
-			linkList.AddItem("Next Page", fmt.Sprintf("Go to page %d", page + 2), 'n', func() {
-				b.showLinksModalPage(page + 1)
-			})
-		}
-	}
-
-	// Add a close option
-	linkList.AddItem("Close", "Close the links list", 'c', func() {
-		// Close the modal by returning to main view
-		flex := tview.NewFlex().
-			SetDirection(tview.FlexRow).
-			AddItem(b.textView, 0, 1, false).
-			AddItem(b.urlInput, 3, 0, false)
-		b.app.SetRoot(flex, true)
-		b.app.SetFocus(b.textView)
-	})
-
-	// Add an images option if there are images on the page
-	if len(b.images) > 0 {
-		linkList.AddItem("Show Images", fmt.Sprintf("View all %d images on this page", len(b.images)), 'i', func() {
-			b.showImagesModal()
-		})
-	}
-
-	// Add a go back option if there's history
-	if b.historyIndex > 0 {
-		linkList.AddItem("Go Back", "Return to previous page", 'b', func() {
-			// Go back in history and return to main view
-			b.GoBack()
-			// The GoBack function will handle updating the UI
-		})
-	}
-
-	// Set up key handling for the modal
-	linkList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEscape:
-			fallthrough
-		case tcell.KeyRune:
-			if event.Rune() == 'q' {
-				// Close the modal by returning to main view
-				flex := tview.NewFlex().
-					SetDirection(tview.FlexRow).
-					AddItem(b.textView, 0, 1, false).
-					AddItem(b.urlInput, 3, 0, false)
-				b.app.SetRoot(flex, true)
-				b.app.SetFocus(b.textView)
-				return nil
-			} else if event.Rune() == 'n' && totalPages > 1 && page < totalPages-1 {
-				// Go to next page
-				b.showLinksModalPage(page + 1)
-				return nil
-			} else if event.Rune() == 'p' && totalPages > 1 && page > 0 {
-				// Go to previous page
-				b.showLinksModalPage(page - 1)
-				return nil
-			}
-		}
-		return event
-	})
-
-	// Set the list as root (this removes the loading indicator)
-	b.app.SetRoot(linkList, true)
-}
-
 // showLoadingModal shows a temporary loading modal for modals when needed
 func (b *Browser) showLoadingModal(title, message string) *tview.TextView {
 	loadingView := tview.NewTextView()
@@ -1372,11 +386,54 @@ func (b *Browser) hideLoadingIndicator() {
 	// Return to the main view (textView)
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
-		AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
+		AddItem(b.textView, 0, 1, false). // Main content area - takes remaining space
+		AddItem(b.urlInput, 3, 0, false)  // URL input at the bottom - fixed height of 3
 
 	b.app.SetRoot(flex, true)
 
 	// Ensure focus goes back to the main content after loading
 	b.app.SetFocus(b.textView)
+}
+
+// validateAndSanitizeURL validates and sanitizes the input URL
+func (b *Browser) validateAndSanitizeURL(inputURL string) (string, error) {
+	// Basic validation to check for potentially malicious schemes
+	if strings.HasPrefix(inputURL, "javascript:") || strings.HasPrefix(inputURL, "data:") ||
+		strings.HasPrefix(inputURL, "vbscript:") || strings.HasPrefix(inputURL, "file:") {
+		return "", fmt.Errorf("unsupported or dangerous URL scheme")
+	}
+
+	// Check if the URL is empty
+	if strings.TrimSpace(inputURL) == "" {
+		return "", fmt.Errorf("URL cannot be empty")
+	}
+
+	// Check for excessive length to prevent potential buffer overflow
+	if len(inputURL) > 2048 {
+		return "", fmt.Errorf("URL is too long")
+	}
+
+	// Parse the URL to validate its structure
+	parsedURL, err := url.Parse(inputURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL format: %v", err)
+	}
+
+	// Validate the host to ensure it's not pointing to internal addresses
+	host := parsedURL.Hostname()
+	if host == "localhost" || strings.HasPrefix(host, "127.") ||
+		strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") ||
+		(strings.HasPrefix(host, "172.") && len(host) > 4 &&
+			host[4] >= '1' && host[4] <= '3' && host[5] == '.') {
+		// Allow these only if explicitly enabled, for security
+		return "", fmt.Errorf("access to local/internal addresses not allowed")
+	}
+
+	// Check for suspicious patterns in the URL
+	if strings.Contains(inputURL, "..") || strings.Contains(inputURL, "0x00") {
+		return "", fmt.Errorf("URL contains suspicious patterns")
+	}
+
+	// Return the validated URL
+	return inputURL, nil
 }

@@ -1,12 +1,8 @@
 package main
 
 import (
-	"fmt"
-	"net/url"
 	"strings"
 
-	"github.com/PuerkitoBio/goquery"
-	"github.com/go-shiori/go-readability"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
