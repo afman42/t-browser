@@ -962,11 +962,26 @@ func (b *Browser) downloadImage(imageURL string) error {
 		return fmt.Errorf("URL does not point to an image (content type: %s)", contentType)
 	}
 
-	// For now, just verify we can access the image - in a real implementation
-	// you might save it to a temp file or the user's system
-	_, err = io.ReadAll(resp.Body)
+	// Check content length from the response if available
+	contentLength := resp.Header.Get("Content-Length")
+	if contentLength != "" {
+		var size int64
+		fmt.Sscanf(contentLength, "%d", &size)
+		if size > 5*1024*1024 { // 5MB limit
+			return fmt.Errorf("image too large (%d bytes > 5 MB)", size)
+		}
+	}
+
+	// Read the image data with size limit to prevent downloading very large files
+	// Use the same 5MB limit as in showImagePreview
+	imgData, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit
 	if err != nil {
 		return err
+	}
+
+	// Check if we reached the size limit
+	if len(imgData) >= 5*1024*1024 {
+		return fmt.Errorf("image is too large (exceeds 5 MB limit)")
 	}
 
 	return nil
