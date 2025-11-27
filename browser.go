@@ -24,17 +24,6 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-// Pagination constants
-const (
-	ItemsPerPage = 20 // Number of items to show per page
-)
-
-// Link represents a hyperlink on the page
-type Link struct {
-	URL  string
-	Text string
-	Position int // Position in content for navigation
-}
 
 // Browser represents the terminal browser instance
 type Browser struct {
