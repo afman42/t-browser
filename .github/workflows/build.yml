@@ -35,11 +35,11 @@ jobs:
           env GOOS=windows GOARCH=amd64 go build -o ./bin/tmp/t-browser-windows-amd64.exe
         working-directory: .
 
-      - name: Build for Linux (amd64)
+      - name: Compress File Linux (amd64)
         run: |
           upx ./bin/tmp/t-browser-linux-amd64 -o ./bin/t-browser-linux-amd64
 
-      - name: Build for Windows (amd64)
+      - name: Compress File Windows (amd64)
         run: |
           upx ./bin/tmp/t-browser-windows-amd64.exe -o ./bin/t-browser-windows-amd64.exe
         working-directory: .
