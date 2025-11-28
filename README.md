@@ -188,6 +188,25 @@ export PROXY=http://your-proxy:port
 - **Fast**: Uses very little computer power
 - **Keyboard only**: Full control with just your keys
 
+## 💻 Terminal UI Appearance (Windows vs Linux)
+
+The appearance of t-browser's terminal interface may look different between Windows and Linux systems. This is due to differences in how terminals work on each platform:
+
+### Why It Looks Different:
+
+- **Terminal Compatibility**: Linux terminals have better support for advanced text formatting and special characters used in the interface
+- **Font Support**: Linux terminals typically use fonts with better Unicode support for drawing borders and UI elements
+- **Color Rendering**: Linux terminals often support more colors and display them more vividly
+
+### How to Improve the Look on Windows:
+
+- **Use Windows Terminal**: Instead of Command Prompt, download and use Windows Terminal from the Microsoft Store for better appearance
+- **Change Font Settings**: In your terminal settings, choose a font with good Unicode support like Cascadia Code or Consolas
+- **Enable UTF-8**: Make sure your terminal is set to use UTF-8 encoding for proper character display
+- **Update Your Environment**: Newer versions of PowerShell have better support for terminal UIs than Command Prompt
+
+The functionality remains the same across platforms - the difference is only in visual appearance.
+
 ## 🤝 Help Make It Better
 
 Found a problem or want to suggest something? Report it on GitHub!
