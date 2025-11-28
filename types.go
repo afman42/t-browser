@@ -38,4 +38,5 @@ type Browser struct {
 	settingsActive            bool          // Flag to track if settings page is active
 	settingsChanged           bool          // Flag to track if settings have been changed
 	rightColumnEmpty          bool          // Flag to track if right column is empty
+	displayToMatchIndex       map[int]int   // Map display list index to internal search match index
 }

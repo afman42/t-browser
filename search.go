@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/fatih/color"
 	"github.com/gdamore/tcell/v2"
@@ -27,6 +28,9 @@ type SearchMatch struct {
 
 // startSearch starts the search functionality
 func (b *Browser) startSearch() {
+	// Initialize the mapping
+	b.displayToMatchIndex = make(map[int]int)
+
 	// Create a modal search with input field and results list
 	inputField := tview.NewInputField().
 		SetLabel("Real-time search (case-sensitive): ").
@@ -34,8 +38,12 @@ func (b *Browser) startSearch() {
 			if key == tcell.KeyEnter || key == tcell.KeyEscape {
 				// Return to main view when Enter or Escape is pressed
 				// Only restore original content if we're not returning from a search result selection
-				if !b.returningFromSearchResult {
+				if !b.returningFromSearchResult && b.searchTerm == "" {
 					b.textView.SetText(b.originalContent)
+				} else if b.returningFromSearchResult && b.searchTerm != "" {
+					// If returning from selection and search term exists, maintain highlighting
+					highlightedText := b.highlightSearchTerm(b.originalContent, b.searchTerm, true)
+					b.textView.SetText(highlightedText)
 				}
 
 				// Reset the flag
@@ -83,19 +91,41 @@ func (b *Browser) startSearch() {
 		// Clear the results list
 		resultsList.Clear()
 
-		// Update results list with matching text
+		// Update results list with unique match titles
 		if len(b.searchMatches) > 0 {
+			// Use a map to track which line text has already been added to avoid duplicates
+			seenTexts := make(map[string]bool)
+			itemIndex := 1 // Start from 1 for display purposes
+			// Create a mapping to track which internal match index corresponds to each displayed item
+			displayToMatchIndex := make(map[int]int)
 			for i, match := range b.searchMatches {
 				// Truncate the line text for display if it's too long
 				displayText := match.LineText
 				if len(displayText) > 50 {
 					displayText = displayText[:50] + "..."
 				}
-				// Add the search result with a prefix showing the index
-				resultsList.AddItem(fmt.Sprintf("%d: %s", i+1, displayText), "", rune('0'+(i+1)%10), nil)
+				// Remove any existing tview formatting codes and unwanted Unicode characters from the display text
+				cleanText := removeUnwantedCharsFromDisplay(displayText)
+				// Only add if this text hasn't been added before
+				if !seenTexts[cleanText] {
+					seenTexts[cleanText] = true
+					displayToMatchIndex[itemIndex-1] = i // Store the mapping (0-indexed for internal match)
+					// Add the search result with a prefix showing the index
+					resultsList.AddItem(fmt.Sprintf("%d: %s", itemIndex, cleanText), "", rune('0'+(itemIndex%10)), nil)
+					itemIndex++
+				}
 			}
+
+			// Store the mapping for later use in navigation
+			b.displayToMatchIndex = displayToMatchIndex
 		} else {
 			resultsList.AddItem("No matches found", "", 0, nil)
+		}
+
+		// If we're returning from a search result selection, highlight all matches
+		if b.returningFromSearchResult && text != "" {
+			highlightedText := b.highlightSearchTerm(b.originalContent, text, true)
+			b.textView.SetText(highlightedText)
 		}
 	})
 
@@ -119,17 +149,39 @@ func (b *Browser) startSearch() {
 				if currentIdx < resultsList.GetItemCount()-1 {
 					resultsList.SetCurrentItem(currentIdx + 1)
 				}
+				// Update the text view to reflect which match would be selected
+				displayIndex := resultsList.GetCurrentItem()
+				if internalIdx, exists := b.displayToMatchIndex[displayIndex]; exists && internalIdx < len(b.searchMatches) {
+					selectedMatch := b.searchMatches[internalIdx]
+					highlightedText := b.highlightSelectedMatch(b.originalContent, b.searchTerm, selectedMatch)
+					b.textView.SetText(highlightedText)
+					// Scroll to the position of the selected match
+					b.scrollToMatch(selectedMatch)
+				}
 				return nil
 			case 'k': // Move up in the list
 				currentIdx := resultsList.GetCurrentItem()
 				if currentIdx > 0 {
 					resultsList.SetCurrentItem(currentIdx - 1)
 				}
+				// Update the text view to reflect which match would be selected
+				displayIndex := resultsList.GetCurrentItem()
+				if internalIdx, exists := b.displayToMatchIndex[displayIndex]; exists && internalIdx < len(b.searchMatches) {
+					selectedMatch := b.searchMatches[internalIdx]
+					highlightedText := b.highlightSelectedMatch(b.originalContent, b.searchTerm, selectedMatch)
+					b.textView.SetText(highlightedText)
+					// Scroll to the position of the selected match
+					b.scrollToMatch(selectedMatch)
+				}
 				return nil
 			case 'q': // Quit search
 				// Only restore original content if we're not returning from a search result selection
-				if !b.returningFromSearchResult {
+				if !b.returningFromSearchResult && b.searchTerm == "" {
 					b.textView.SetText(b.originalContent)
+				} else if b.returningFromSearchResult && b.searchTerm != "" {
+					// If returning from selection and search term exists, maintain highlighting
+					highlightedText := b.highlightSearchTerm(b.originalContent, b.searchTerm, true)
+					b.textView.SetText(highlightedText)
 				}
 
 				// Reset the flag
@@ -150,17 +202,20 @@ func (b *Browser) startSearch() {
 			return nil // Consume the event
 		case tcell.KeyEnter:
 			// Get the selected item and navigate to it in the content
-			currentIdx := resultsList.GetCurrentItem()
-			if currentIdx >= 0 && currentIdx < len(b.searchMatches) {
+			displayIndex := resultsList.GetCurrentItem()
+			if internalIdx, exists := b.displayToMatchIndex[displayIndex]; exists && internalIdx < len(b.searchMatches) {
 				// Set flag to indicate we're returning from a search result selection
 				b.returningFromSearchResult = true
 
 				// Store the selected match to highlight in the main content
-				selectedMatch := b.searchMatches[currentIdx]
+				selectedMatch := b.searchMatches[internalIdx]
 
 				// Create highlighted text where the specific selected match has a different highlight
 				highlightedText := b.highlightSelectedMatch(b.originalContent, b.searchTerm, selectedMatch)
 				b.textView.SetText(highlightedText)
+
+				// Scroll to the position of the selected match
+				b.scrollToMatch(selectedMatch)
 
 				// Return to main view after navigating
 				flex := tview.NewFlex().
@@ -320,7 +375,7 @@ func (b *Browser) highlightSearchTerm(text, term string, caseSensitive bool) str
 	}
 
 	// Replace only the matching terms with highlighted versions
-	// Using yellow as the highlight color via our color management system
+	// Using yellow text on dark background to match HTML styling (like "From" in the example)
 	highlighted := re.ReplaceAllStringFunc(text, func(match string) string {
 		colorCode := ColorToTviewFormat("yellow")
 		return fmt.Sprintf("[%s]%s[-]", colorCode, match)
@@ -348,103 +403,181 @@ func (b *Browser) highlightSearchTermWithColor(text, term string, caseSensitive 
 	}
 
 	// Use our color management system to convert color name to tview format
-	tviewColor := ColorToTviewFormat(colorName)
+	// Format as: foreground:background to get text in specified color with yellow background
+	fgColor := ColorToTviewFormat(colorName)
+	bgColor := ColorToTviewFormat("yellow")
 
 	// Replace only the matching terms with highlighted versions
 	highlighted := re.ReplaceAllStringFunc(text, func(match string) string {
-		return fmt.Sprintf("[%s]%s[-]", tviewColor, match)
+		return fmt.Sprintf("[%s:%s]%s[-]", fgColor, bgColor, match)
 	})
 
 	return highlighted
 }
 
-// highlightSelectedMatch highlights the search term differently for the selected match vs other matches
+// highlightSelectedMatch highlights the full line containing the selected match in the main content
 func (b *Browser) highlightSelectedMatch(text, term string, selectedMatch SearchMatch) string {
 	if term == "" || strings.TrimSpace(term) == "" {
 		return text
 	}
 
-	// Find all matches first, before applying any formatting
-	escapedTerm := regexp.QuoteMeta(strings.TrimSpace(term))
-	re := regexp.MustCompile("(?i)" + escapedTerm) // Case insensitive
+	// Split the text into lines
+	lines := strings.Split(text, "\n")
 
-	// Find all match positions
-	indices := re.FindAllStringIndex(text, -1)
+	// Find which line contains the selected match
+	selectedLineIndex := -1
+	currentPos := 0
 
-	if indices == nil {
-		return text
-	}
+	for i, line := range lines {
+		lineEndPos := currentPos + len(line)
 
-	// Find which index in the regex result corresponds to our selected match
-	selectedIndex := -1
-	for i, idx := range indices {
-		start, end := idx[0], idx[1]
-		// Check if this match corresponds to our selected match by comparing position
-		if start == selectedMatch.CharStart && end == selectedMatch.CharEnd {
-			selectedIndex = i
+		// Check if the selected match is in this line
+		if selectedMatch.CharStart >= currentPos && selectedMatch.CharEnd <= lineEndPos {
+			selectedLineIndex = i
 			break
 		}
+
+		currentPos = lineEndPos + 1 // +1 for the newline character
 	}
 
-	// If we couldn't find the match in our new search, default to highlighting the first occurrence
-	if selectedIndex == -1 {
-		// Try to find by matching the text content instead
-		// Make sure the selectedMatch positions are valid
-		if selectedMatch.CharStart >= 0 && selectedMatch.CharEnd <= len(text) {
-			selectedText := text[selectedMatch.CharStart:selectedMatch.CharEnd]
-			for i, idx := range indices {
-				start, end := idx[0], idx[1]
-				if text[start:end] == selectedText {
-					selectedIndex = i
-					break
+	if selectedLineIndex == -1 {
+		// Fallback: use the original functionality if we can't find the line
+		return b.highlightSearchTerm(text, term, true)
+	}
+
+	// Create a new string builder for the result
+	var result strings.Builder
+
+	// Process each line
+	for i, line := range lines {
+		if i == selectedLineIndex {
+			// This is the line containing the selected match - highlight the entire line content
+			// Find all occurrences of the search term in this line to highlight them specially
+			escapedTerm := regexp.QuoteMeta(strings.TrimSpace(term))
+			re := regexp.MustCompile("(?i)" + escapedTerm)
+
+			// Find all matches in this specific line
+			lineMatches := re.FindAllStringIndex(line, -1)
+
+			if lineMatches != nil {
+				// Process this line to highlight search terms with different formatting for the selected one
+				var lineResult strings.Builder
+				lastEnd := 0
+
+				for _, match := range lineMatches {
+					start, end := match[0], match[1]
+					// Add text before the match
+					lineResult.WriteString(line[lastEnd:start])
+
+					// Check if this specific match is the selected one
+					absoluteStart := currentPosAtLineStart(text, i) + start
+					absoluteEnd := currentPosAtLineStart(text, i) + end
+
+					if absoluteStart == selectedMatch.CharStart && absoluteEnd == selectedMatch.CharEnd {
+						// This is the selected match - highlight it with bold yellow to make it stand out
+						colorCode := ColorToTviewFormat("yellow") + ":" + ColorToTviewFormat("bold")
+						lineResult.WriteString(fmt.Sprintf("[%s]%s[-]", colorCode, line[start:end]))
+					} else {
+						// Other matches in the same line - regular yellow highlight
+						colorCode := ColorToTviewFormat("yellow")
+						lineResult.WriteString(fmt.Sprintf("[%s]%s[-]", colorCode, line[start:end]))
+					}
+
+					lastEnd = end
 				}
+
+				// Add the remainder of the line
+				lineResult.WriteString(line[lastEnd:])
+				result.WriteString(lineResult.String())
+			} else {
+				// No matches in this line, just add it as is
+				result.WriteString(line)
+			}
+		} else {
+			// This is not the selected line - highlight normally
+			// Apply regular search term highlighting to other lines
+			escapedTerm := regexp.QuoteMeta(strings.TrimSpace(term))
+			re := regexp.MustCompile("(?i)" + escapedTerm)
+
+			// Find all matches in this line
+			lineMatches := re.FindAllStringIndex(line, -1)
+
+			if lineMatches != nil {
+				var lineResult strings.Builder
+				lastEnd := 0
+
+				for _, match := range lineMatches {
+					start, end := match[0], match[1]
+					// Add text before the match
+					lineResult.WriteString(line[lastEnd:start])
+
+					// Highlight the matched text with regular yellow
+					colorCode := ColorToTviewFormat("yellow")
+					lineResult.WriteString(fmt.Sprintf("[%s]%s[-]", colorCode, line[start:end]))
+
+					lastEnd = end
+				}
+
+				// Add the remainder of the line
+				lineResult.WriteString(line[lastEnd:])
+				result.WriteString(lineResult.String())
+			} else {
+				// No matches in this line, just add it as is
+				result.WriteString(line)
 			}
 		}
-	}
 
-	// Apply highlighting: regular for all matches except the selected one
-	var result strings.Builder
-	lastEnd := 0
-	matchIndex := 0
-
-	for _, idx := range indices {
-		start, end := idx[0], idx[1]
-
-		// Add text before this match
-		result.WriteString(text[lastEnd:start])
-
-		// Get the matched text
-		matchText := text[start:end]
-
-		// Check if this is the selected match by index
-		if matchIndex == selectedIndex {
-			// This is the selected match - use highly distinctive highlighting
-			// Use black text on yellow background with bold to make it extremely visible
-			// Format: foreground:background:attributes
-			selectedColorCode := ColorToTviewFormat("black") + ":" + ColorToTviewFormat("yellow") + ":" + ColorToTviewFormat("bold")
-			result.WriteString(fmt.Sprintf("[%s]%s[-]", selectedColorCode, matchText))
-		} else {
-			// Regular match - use normal highlighting
-			regularColorCode := ColorToTviewFormat("yellow")
-			result.WriteString(fmt.Sprintf("[%s]%s[-]", regularColorCode, matchText))
+		// Add newline if not the last line
+		if i < len(lines)-1 {
+			result.WriteString("\n")
 		}
-
-		lastEnd = end
-		matchIndex++
 	}
-
-	// Add remaining text after the last match
-	result.WriteString(text[lastEnd:])
 
 	return result.String()
 }
 
-// removeTviewFormatting removes tview formatting codes from text like [::b], [yellow], etc.
+// currentPosAtLineStart calculates the character position at the start of a given line
+func currentPosAtLineStart(text string, lineIndex int) int {
+	lines := strings.Split(text, "\n")
+	pos := 0
+	for i := 0; i < lineIndex && i < len(lines); i++ {
+		pos += len(lines[i]) + 1 // +1 for the newline character
+	}
+	return pos
+}
+
+// removeTviewFormatting removes tview formatting codes and unwanted Unicode characters from text
 func removeTviewFormatting(text string) string {
-	// Regex to match tview formatting codes like [::b], [yellow], [::-], etc.
+	// First, remove tview formatting codes like [::b], [yellow], [::-], etc.
 	// This matches [ followed by any characters (non-greedy) and then ]
 	re := regexp.MustCompile(`\[[^]]*\]`)
-	return re.ReplaceAllString(text, "")
+	text = re.ReplaceAllString(text, "")
+
+	// Remove unwanted Unicode characters (like ം and া)
+	// We'll remove combining marks and other diacritics that might be problematic
+	// This regex matches combining characters
+	reUnicode := regexp.MustCompile(`[\x{0900}-\x{0DFF}\x{1CD0}-\x{1CFF}\x{A8E0}-\x{A8FF}\x{0300}-\x{036F}\x{1AB0}-\x{1AFF}\x{1DC0}-\x{1DFF}\x{20D0}-\x{20FF}\x{FE20}-\x{FE2F}]`)
+	text = reUnicode.ReplaceAllString(text, "")
+
+	return text
+}
+
+// removeUnwantedCharsFromDisplay removes tview formatting and unwanted Unicode characters for clean display
+func removeUnwantedCharsFromDisplay(text string) string {
+	// Remove tview formatting codes
+	text = removeTviewFormatting(text)
+
+	// Additional cleaning: remove zero-width characters and other problematic Unicode
+	// This includes the characters mentioned (like ം and া) and similar combining marks
+	var cleanText strings.Builder
+	for _, r := range text {
+		// Skip combining marks and other potentially problematic characters
+		if !unicode.Is(unicode.Mn, r) && !unicode.Is(unicode.Mc, r) && !unicode.Is(unicode.Me, r) {
+			cleanText.WriteRune(r)
+		}
+	}
+
+	return cleanText.String()
 }
 
 // findSearchMatchesWithPositions finds all matches and returns position information for navigation
@@ -474,7 +607,7 @@ func (b *Browser) findSearchMatchesWithPositions(text, term string, caseSensitiv
 
 	// Split content into lines to provide context
 	lines := strings.Split(text, "\n")
-	var searchMatches []SearchMatch
+	var allMatches []SearchMatch
 
 	for _, loc := range indices {
 		start, end := loc[0], loc[1]
@@ -504,18 +637,19 @@ func (b *Browser) findSearchMatchesWithPositions(text, term string, caseSensitiv
 				CharEnd:   end,
 			}
 
-			searchMatches = append(searchMatches, match)
+			allMatches = append(allMatches, match)
 		}
 	}
 
-	// Remove duplicates by checking if matches are too close to each other
+	// Remove duplicates by checking if matches are on the same line with overlapping text
+	// This ensures we don't have multiple matches from the same line that are too close together
 	uniqueMatches := []SearchMatch{}
-	seenPositions := make(map[int]bool)
+	usedLines := make(map[int]bool) // Track which lines have already been used
 
-	for _, match := range searchMatches {
-		// Use the character start position as a unique identifier
-		if !seenPositions[match.CharStart] {
-			seenPositions[match.CharStart] = true
+	for _, match := range allMatches {
+		// If the line hasn't been used yet, add the match
+		if !usedLines[match.LineNum] {
+			usedLines[match.LineNum] = true
 			uniqueMatches = append(uniqueMatches, match)
 		}
 	}
@@ -523,9 +657,32 @@ func (b *Browser) findSearchMatchesWithPositions(text, term string, caseSensitiv
 	return uniqueMatches
 }
 
-// scrollToMatch ensures the text view shows the highlighted content and focuses on the selected match
+// scrollToMatch ensures the text view shows the highlighted content and attempts to position the selected match in view
 func (b *Browser) scrollToMatch(match SearchMatch) {
 	// The text is already highlighted with the selected match in the call that brought us here
-	// Just ensure focus is set properly
+	// tview doesn't have direct methods to scroll to specific text locations
+	// We'll ensure focus is set properly and trigger a scroll to beginning for now
+	// The user can then visually locate the highlighted match
+
+	// Calculate approximate line number based on character position
+	text := b.textView.GetText(false)
+	lines := strings.Split(text, "\n")
+
+	// Find the line where the match occurs
+	approxLineNum := 0
+	charCount := 0
+
+	for i, line := range lines {
+		nextCharCount := charCount + len(line) + 1 // +1 for newline character
+		if match.CharStart < nextCharCount {
+			approxLineNum = i
+			break
+		}
+		charCount = nextCharCount
+	}
+
+	// Scroll to the approximate line of the match if possible
+	// Set the relative offset to bring the match into view
+	b.textView.ScrollTo(approxLineNum, 0)
 	b.app.SetFocus(b.textView)
 }
