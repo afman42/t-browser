@@ -1,57 +1,115 @@
-name: Build
+name: Build & Test
 
 on:
   push:
     branches: [main]
 
 jobs:
-  build:
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install UPX (Compress file)
-        run: |
-          sudo apt update
-          sudo apt install -y upx-ucl
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: '1.24'
           cache: true
 
       - name: Get dependencies
         run: go mod tidy
 
-      - name: Build for Linux (amd64)
-        run: |
-          env GOOS=linux GOARCH=amd64 go build -o ./bin/tmp/t-browser-linux-amd64
-        working-directory: .
+      - name: Lint
+        run: go vet ./...
 
-      - name: Build for Windows (amd64)
-        run: |
-          env GOOS=windows GOARCH=amd64 go build -o ./bin/tmp/t-browser-windows-amd64.exe
-        working-directory: .
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Compress File Linux (amd64)
-        run: |
-          upx ./bin/tmp/t-browser-linux-amd64 -o ./bin/t-browser-linux-amd64
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
 
-      - name: Compress File Windows (amd64)
-        run: |
-          upx ./bin/tmp/t-browser-windows-amd64.exe -o ./bin/t-browser-windows-amd64.exe
-        working-directory: .
+      - name: Get dependencies
+        run: go mod tidy
 
-      - name: Upload Artifacts (Linux)
+      - name: Test
+        run: go test ./... -v -count=1
+
+      - name: Test with race detector
+        run: go test ./... -race -count=1
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Get dependencies
+        run: go mod tidy
+
+      - name: Coverage
+        run: |
+          go test ./... -coverprofile=coverage.out -count=1
+          go tool cover -func=coverage.out
+
+      - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
-          name: t-browser-linux-amd64
-          path: ./bin/t-browser-linux-amd64
+          name: coverage-report
+          path: coverage.out
 
-      - name: Upload Artifacts (Windows)
+  build:
+    name: Build (${{ matrix.os }}/${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [linux, windows]
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Get dependencies
+        run: go mod tidy
+
+      - name: Build
+        run: |
+          ext=""
+          if [ "${{ matrix.os }}" = "windows" ]; then ext=".exe"; fi
+          env GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
+            go build -ldflags="-s -w" -o "./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}"
+
+      - name: Install UPX (Compress file)
+        run: |
+          sudo apt update
+          sudo apt install -y upx-ucl
+          ext=""
+          if [ "${{ matrix.os }}" = "windows" ]; then ext=".exe"; fi
+          upx ./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}"
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: t-browser-windows-amd64
-          path: ./bin/t-browser-windows-amd64.exe
+          name: t-browser-${{ matrix.os }}-${{ matrix.arch }}
+          path: ./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}*

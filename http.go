@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,101 +23,11 @@ type HTTPClient struct {
 	forceUA      string
 	proxy        *url.URL
 	maxRedirects int
-	config *Config
+	config       *Config
+	hstsStore    *HSTSStore          // HSTS policy store (nil when HSTS disabled)
 }
 
-// Cookie represents an HTTP cookie
-type Cookie struct {
-	Name     string
-	Value    string
-	Domain   string
-	Path     string
-	Expires  time.Time // When the cookie expires
-	MaxAge   int       // Max age in seconds
-	Secure   bool      // Only send over HTTPS
-	HttpOnly bool      // Not accessible via JavaScript
-	SameSite string    // SameSite policy
-}
 
-// Matches checks if a cookie should be included in a request to the given URL
-func (c *Cookie) Matches(requestURL *url.URL) bool {
-	// Check domain matching (RFC 6265)
-	if !matchesDomain(requestURL.Host, c.Domain) {
-		return false
-	}
-
-	// Check path matching (RFC 6265)
-	if !matchesPath(requestURL.Path, c.Path) {
-		return false
-	}
-
-	// Check secure flag if HTTPS is required
-	if c.Secure && requestURL.Scheme != "https" {
-		return false
-	}
-
-	// Check if cookie is expired
-	if !c.Expires.IsZero() && time.Now().After(c.Expires) {
-		return false
-	}
-
-	return true
-}
-
-// matchesDomain checks if the request host matches the cookie domain
-func matchesDomain(requestHost, cookieDomain string) bool {
-	if cookieDomain == "" {
-		return true
-	}
-
-	// Remove port from requestHost if present
-	hostWithoutPort := strings.Split(requestHost, ":")[0]
-
-	// Case-insensitive comparison
-	hostWithoutPort = strings.ToLower(hostWithoutPort)
-	cookieDomain = strings.ToLower(cookieDomain)
-
-	// If exact match
-	if hostWithoutPort == cookieDomain {
-		return true
-	}
-
-	// If cookie domain starts with a dot
-	if strings.HasPrefix(cookieDomain, ".") {
-		// Check if request host is a subdomain
-		suffix := cookieDomain[1:] // Remove the leading dot
-		if strings.HasSuffix(hostWithoutPort, suffix) {
-			// Check that the request host is longer than the suffix
-			// and the character before the suffix is a dot
-			if len(hostWithoutPort) > len(suffix) {
-				prefix := hostWithoutPort[:len(hostWithoutPort)-len(suffix)]
-				return strings.HasSuffix(prefix, ".")
-			}
-		}
-	}
-
-	return false
-}
-
-// matchesPath checks if the request path matches the cookie path
-func matchesPath(requestPath, cookiePath string) bool {
-	if cookiePath == "" || cookiePath == "/" {
-		return true
-	}
-
-	if requestPath == "" {
-		requestPath = "/"
-	}
-
-	// Path must be a prefix of the request path
-	if !strings.HasPrefix(requestPath, cookiePath) {
-		return false
-	}
-
-	// If cookie path is not followed by / in the request path, it doesn't match
-	remaining := requestPath[len(cookiePath):]
-	return len(remaining) == 0 || strings.HasPrefix(remaining, "/")
-}
 
 // NewHTTPClient creates a new HTTP client with proper configuration
 func NewHTTPClient(config *Config) *HTTPClient {
@@ -144,15 +53,44 @@ func NewHTTPClient(config *Config) *HTTPClient {
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 
+	// ----- Certificate pinning -----
+	if config != nil && config.EnablePinning {
+		pins, err := parsePinnedKeys(config.PinnedKeys)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: invalid pinned_keys in config: %v\n", err)
+		}
+		if len(pins) > 0 {
+			transport.TLSClientConfig = setupTLSConfig(pins, true)
+		}
+	}
+
+	// ----- HSTS store -----
+	var hstsStore *HSTSStore
+	if config != nil && config.EnableHSTS {
+		configDir := GetConfigDir()
+		hstsPath := GetHSTSFilePath(configDir)
+		if store, err := LoadHSTS(hstsPath); err == nil {
+			hstsStore = store
+			hstsStore.Cleanup()
+		}
+	}
+
+	// Wrap the transport with HSTS upgrade logic.
+	finalTransport := http.RoundTripper(transport)
+	if hstsStore != nil {
+		finalTransport = &hstsTransport{inner: transport, store: hstsStore}
+	}
+
 	client := &HTTPClient{
 		client: &http.Client{
-			Transport: transport,
+			Transport: finalTransport,
 			Timeout:   timeout,
 		},
 		cookies:      make(map[string]*Cookie),
 		forceUA:      userAgent,
 		maxRedirects: maxRedirects,
-		config:       config, // Store the config for later use
+		config:       config,
+		hstsStore:    hstsStore,
 	}
 
 	// Load cookies from persistent storage if available
@@ -168,135 +106,7 @@ func (c *HTTPClient) SetProxy(proxy *url.URL) {
 	}
 }
 
-// loadCookiesFromFile loads cookies from persistent storage
-func (c *HTTPClient) loadCookiesFromFile() {
-	var cookieFile string
 
-	if c.config != nil {
-		// Use the config directory to find the latest cookie file
-		configDir := GetConfigDir()
-		cookieFile = GetLatestCookieFile(configDir)
-	}
-
-	// If no file found or config is not available, use the old method as fallback
-	if cookieFile == "" {
-		cookieFile = "t-browser-cookies.json"
-		if c.config != nil && c.config.CookieFile != "" {
-			cookieFile = c.config.CookieFile
-		}
-	}
-
-	data, err := os.ReadFile(cookieFile)
-	if err != nil {
-		// File may not exist yet, which is fine
-		return
-	}
-
-	var cookies []*Cookie
-	err = json.Unmarshal(data, &cookies)
-	if err != nil {
-		// Log the error but continue without loaded cookies
-		return
-	}
-
-	// Filter out expired cookies and populate the cookies map
-	for _, cookie := range cookies {
-		if cookie != nil && (cookie.Expires.IsZero() || time.Now().Before(cookie.Expires)) {
-			// Use domain as key for the map
-			c.cookies[cookie.Domain+"_"+cookie.Name] = cookie
-		}
-	}
-}
-
-// saveCookiesToFile saves cookies to persistent storage
-func (c *HTTPClient) saveCookiesToFile() {
-	var cookieFile string
-
-	if c.config != nil {
-		// Use the config directory to get a new timestamped cookie file
-		configDir := GetConfigDir()
-		cookieFile = GetCookieFilePath(configDir)
-	}
-
-	// If config is not available, use fallback
-	if cookieFile == "" {
-		cookieFile = "t-browser-cookies.json"
-		if c.config != nil && c.config.CookieFile != "" {
-			cookieFile = c.config.CookieFile
-		}
-	}
-
-	// Clean up expired cookies before saving
-	c.cleanupExpiredCookies()
-
-	var cookies []*Cookie
-	for _, cookie := range c.cookies {
-		cookies = append(cookies, cookie)
-	}
-
-	data, err := json.MarshalIndent(cookies, "", "  ")
-	if err != nil {
-		// Log the error but continue
-		return
-	}
-
-	err = os.WriteFile(cookieFile, data, 0600) // Only readable/writable by owner
-	if err != nil {
-		// Log the error but continue
-	}
-}
-
-// cleanupExpiredCookies removes expired cookies from the storage
-func (c *HTTPClient) cleanupExpiredCookies() {
-	now := time.Now()
-	for key, cookie := range c.cookies {
-		if !cookie.Expires.IsZero() && now.After(cookie.Expires) {
-			delete(c.cookies, key)
-		}
-	}
-}
-
-// addCookie adds a cookie to the storage with proper validation
-func (c *HTTPClient) addCookie(httpCookie *http.Cookie, host string) {
-	// Create our internal Cookie representation
-	cookie := &Cookie{
-		Name:   httpCookie.Name,
-		Value:  httpCookie.Value,
-		Domain: httpCookie.Domain,
-		Path:   httpCookie.Path,
-		Secure: httpCookie.Secure,
-		HttpOnly: httpCookie.HttpOnly,
-	}
-
-	// Handle expiration - try Expires first, then MaxAge
-	if !httpCookie.Expires.IsZero() {
-		cookie.Expires = httpCookie.Expires
-	} else if httpCookie.MaxAge > 0 {
-		cookie.Expires = time.Now().Add(time.Duration(httpCookie.MaxAge) * time.Second)
-		cookie.MaxAge = httpCookie.MaxAge
-	} else if httpCookie.MaxAge < 0 {
-		// Delete the cookie if MaxAge is negative
-		delete(c.cookies, httpCookie.Domain+"_"+httpCookie.Name)
-		return
-	}
-
-	// If no domain was specified, use the host
-	if cookie.Domain == "" {
-		cookie.Domain = host
-	}
-
-	// If no path was specified, set it to the directory of the request path
-	if cookie.Path == "" {
-		cookie.Path = "/"
-	}
-
-	// Store the cookie in the map
-	key := cookie.Domain + "_" + cookie.Name
-	c.cookies[key] = cookie
-
-	// Save to persistent storage
-	c.saveCookiesToFile()
-}
 
 // fetchPageWithRedirectLimit fetches the page content with a redirect limit
 func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int) (string, error) {
@@ -326,9 +136,10 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
 
 	// Add cookies if available and enabled in config
+	enforceSameSite := c.config != nil && c.config.EnforceSameSite
 	if c.config == nil || c.config.EnableCookies {
 		for _, cookie := range c.cookies {
-			if cookie.Matches(parsedURL) {
+			if cookie.Matches(parsedURL, enforceSameSite) {
 				req.AddCookie(&http.Cookie{
 					Name:  cookie.Name,
 					Value: cookie.Value,
@@ -374,6 +185,14 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 	// Store cookies from response
 	for _, httpCookie := range resp.Cookies() {
 		c.addCookie(httpCookie, parsedURL.Host)
+	}
+
+	// ----- HSTS header processing -----
+	if c.hstsStore != nil {
+		if hstsHeader := resp.Header.Get("Strict-Transport-Security"); hstsHeader != "" {
+			c.hstsStore.RecordPolicy(parsedURL.Hostname(), hstsHeader)
+			c.saveHSTSStore()
+		}
 	}
 
 	// Extract charset from content type
@@ -488,9 +307,17 @@ func isValidRedirectLocation(location string, originalURL *url.URL) bool {
 		if err != nil {
 			return false
 		}
-		// Only allow redirects to the same host or subdomains
-		// This prevents open redirect vulnerabilities
-		return strings.HasSuffix(redirectURL.Host, originalURL.Host) || redirectURL.Host == originalURL.Host
+		// Only allow redirects to the same host or subdomains.
+		// Use exact match OR ".domain" suffix to prevent "foo.com.evil.com" bypass.
+		host := originalURL.Hostname()
+		rhost := redirectURL.Hostname()
+		if rhost == host {
+			return true
+		}
+		if strings.HasSuffix(rhost, "."+host) {
+			return true
+		}
+		return false
 	}
 
 	// For relative redirects (starting with / or #), they are safe

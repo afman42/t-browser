@@ -1,216 +1,269 @@
 # Terminal Browser (t-browser)
 
-A lightweight web browser that runs directly in your terminal. Browse the web without opening a separate window - just use your keyboard!
+A lightweight **terminal-based web browser** — no mouse, no separate window, just your keyboard.  
+Browse the web from anywhere you can open a terminal.
 
-## ✨ What You Can Do
+---
 
-- **Browse websites** directly from your terminal
-- **View main content** while hiding ads and menus
-- **Navigate with keyboard** shortcuts (no mouse needed)
-- **See all links** on a page with one command
-- **Preview images** right in your terminal
-- **Search text** on any webpage instantly
-- **Use basic proxy** for connections
-- **Configure browser settings** through an intuitive settings page
+## ✨ Features
 
-## 🚀 How to Get Started
+| Category            | What it does |
+|---------------------|-------------|
+| **Browse**          | Render web pages to plain text with smart content extraction (readability) |
+| **Navigate**        | `j`/`k` scroll, `b`/`f` history, `l`/`i` list links/images, `/` search |
+| **Images**          | Preview JPG, PNG, GIF, BMP, WebP as ASCII art in the terminal |
+| **Sessions**        | Save/restore history and tabs across restarts |
+| **Cookies**         | RFC 6265 compliant, SameSite enforcement, auto-save |
+| **Security**        | HTML sanitisation, external resource blocking, HSTS, certificate pinning |
+| **Proxy**           | Via config file or environment variable |
+| **Themes**          | Dark / light with one-key toggle in settings |
+| **Clipboard**       | Press `p` in the URL bar to paste from system clipboard |
 
-### What You Need
+---
 
-- Go programming language (version 1.19 or newer)
+## 🚀 Quick Start
 
-### Install and Run
+### Requirements
+- **Go 1.19+**
+- `gcc` (needed for `make test-race` on Linux)
+
+### Install & Run
 
 ```bash
-# Download the code
+# Clone and build
 git clone https://github.com/yourusername/t-browser.git
 cd t-browser
+make build
 
-# Get required packages
-go mod tidy
-
-# Build the program
-go build
-
-# Run the browser
-./t-browser
+# Open a website
+./t-browser https://example.com
 ```
 
-### Quick Usage Examples
+### Makefile Reference
 
 ```bash
-# Open with default homepage
-./t-browser
-
-# Go to a specific website
-./t-browser https://example.com
-
-# Or just type the website name (https is added automatically)
-./t-browser example.com
+make build          # Compile the binary
+make test           # Run all tests (verbose)
+make test-race      # Run tests with the race detector
+make coverage       # Run tests + print per-function coverage
+make coverage-html  # Open a browser with the HTML coverage report
+make lint           # Run go vet (static analysis)
+make run URL=…     # Build & launch the browser
+make tidy           # Run go mod tidy
+make clean          # Remove build artefacts
 ```
+
+---
 
 ## ⌨️ Keyboard Shortcuts
 
-| Key             | What it Does                               |
-| --------------- | ------------------------------------------ |
-| `q` or `Ctrl+C` | Exit the browser                           |
-| `/`             | Find text on the page                      |
-| `b`             | Go back to previous page                   |
-| `f`             | Go forward (like browser history)          |
-| `j`             | Move down through content                  |
-| `k`             | Move up through content                    |
-| `l`             | See all links on current page              |
-| `i`             | See all images on current page             |
-| `s`             | Open settings page                         |
-| `Enter`         | Choose a link or image                     |
-| `?`             | Show help                                  |
-| `Tab`           | Switch between web content and address bar |
-| `p`             | Paste a URL from clipboard                 |
-
-### Settings Page Navigation
-
-The settings page features a two-column layout with additional navigation options:
-
-| Key Combination                                 | What it Does                                                        |
-| ----------------------------------------------- | ------------------------------------------------------------------- |
-| `s`                                             | Open settings page with category list on left and settings on right |
-| `Tab`                                           | Switch focus between left (categories) and right (settings) columns |
-| `Shift+Tab`                                     | Navigate between form elements in the right column                  |
-| `Tab` (in left column, when right is not empty) | Switch to the settings form                                         |
-| `Cancel button`                                 | Clear the right column and set focus to left column                 |
-
-### Browsing Tips
-
-- Use `j` and `k` to move up/down the webpage
-- Long text lines won't wrap - make your terminal wider if needed
-- New pages always start at the top
-
-### Finding Links
-
-- Press `l` to see a clean list of all links
-- Each link shows the text and its full web address
-- Links with images show [IMAGE] or [IMAGE*] markers
-- Use arrow keys to pick a link, then press Enter
-- Press Esc or 'q' to return to the page
-
-### Viewing Images
-
-- Press `i` to see all images on the page
-- Shows image name, description, and file type
-- Pick any image to view it in your terminal
-- Supports JPG, PNG, GIF, BMP, WebP, and more
-- Files limited to 5MB to save space and time
-- Press Esc or 'q' to return
-
-### Search on Any Page
-
-- Press `/` to start searching
-- Type any words - they light up in yellow
-- See how many matches you found
-
-## ⚙️ Configuration and Settings
-
-The browser uses a configuration file to manage settings across sessions and provides an in-browser settings page for easy configuration. The configuration file is automatically created and managed in the appropriate OS-specific location:
-
-- **Linux**: `~/.config/t-browser/config.yaml`
-- **Windows**: `%APPDATA%\t-browser\config.yaml`
-- **macOS**: `~/Library/Application Support/t-browser/config.yaml`
+| Key             | Action                          |
+|-----------------|---------------------------------|
+| `j` / `k`       | Scroll down / up (10 lines)    |
+| `b` / `f`       | Go back / forward in history   |
+| `l`             | List all links on the page      |
+| `i`             | List all images on the page     |
+| `/`             | Real-time search with highlights |
+| `s`             | Open settings (two-column UI)  |
+| `?`             | Show help overlay               |
+| `Tab`           | Switch between content & URL bar |
+| `p`             | Paste URL from clipboard       |
+| `q` / `Ctrl+C`  | Quit                           |
 
 ### Settings Page
 
-Access the settings page by pressing the `s` key while browsing. The settings page features:
+| Key                 | Action                                   |
+|---------------------|------------------------------------------|
+| `Tab`               | Switch between categories / settings     |
+| `↑` / `↓` (left)    | Select a category                        |
+| `Enter` (category)  | Open the settings form on the right      |
+| `q` / `Esc`         | Close settings                           |
+| Save button         | Persist to `config.yaml`                 |
 
-- **Two-column layout**: Categories on the left, settings on the right
-- **Six categories**: Browser, Network, Content, UI, Privacy, and Advanced settings
-- **Intuitive navigation**: Use Tab to switch between columns, Alt+Arrows to navigate form elements
-- **Visual feedback**: Save and Cancel buttons appear when changes are made
-- **Cancel functionality**: Press Cancel to clear the right column and return focus to categories
-- **Persistent settings**: Changes are saved to the configuration file when you Save
+---
 
-### Configuration Settings
+## 🏗️ Architecture
 
-The configuration file includes the following settings:
+### File Map
 
-- `user_agent`: Custom user agent string for HTTP requests
-- `cookie_file`: Path to store persistent cookies
-- `cookie_auto_save`: Enable automatic cookie saving
-- `session_file`: Path to store session data
-- `session_auto_save`: Enable automatic session saving
-- `proxy`: Proxy server URL (e.g., "http://proxy:port")
-- `request_timeout`: Time in seconds before request timeout
-- `max_redirects`: Maximum number of HTTP redirects to follow
-- `max_page_size`: Maximum size (in bytes) for downloaded pages
-- `max_image_size`: Maximum size (in bytes) for images
-- `enable_images`: Enable or disable image loading
-- `enable_cookies`: Enable or disable cookie storage
-- `theme`: Color theme for the interface
-- `show_images`: Display images in terminal
-- `word_wrap`: Enable text word wrapping
-
-### Proxy Setup
-
-You can set a proxy using the configuration file or environment variable:
-
-Using the config file (recommended):
-
-```yaml
-proxy: http://your-proxy:port
+```
+t-browser/
+│
+├── main.go                  # Entry point — creates a Browser and calls Run()
+│
+├── browser.go               # NewBrowser(), colour helpers, cookie export
+├── types.go                 # Browser struct, Link struct, constants
+├── config.go                # Config struct, Viper initialisation, config I/O
+├── theme.go                 # Dark/light theme definitions and application
+│
+├── session.go               # Session persistence, GoBack / GoForward
+├── navigation.go            # NavigateTo(), URL validation, loading indicator
+├── renderer.go              # Page rendering (readability, goquery parsing)
+├── html_renderer.go         # renderNode() — walks the HTML DOM tree
+├── links.go                 # extractVisibleLinks() — filters links by content
+├── image.go                 # Image utilities (extension check, content-type)
+├── image_preview.go         # Terminal image preview modal
+│
+├── search.go                # Search UI (input field, result list)
+├── search_highlight.go      # Regex matching and text highlighting
+│
+├── http.go                  # HTTPClient, fetchPageWithRedirectLimit()
+├── cookie.go                # Cookie struct, domain/path matching, persistence
+│
+├── content_security.go      # sanitizeHTML(), blockExternalResources()
+├── security.go              # Certificate pinning, HSTS store, HSTS transport
+│
+├── ui.go                    # UI creation (createUI()), key event dispatch
+├── settings.go              # Settings data model and update logic
+├── settings_modal.go        # Two-column settings modal UI
+├── pagination.go            # Paginated link / image list modals
+│
+├── Makefile                 # Build, test, coverage, lint
+└── *_test.go                # 40+ unit & integration tests alongside each module
 ```
 
-Or use environment variable:
+### How a Page Loads
+
+```
+User types URL ----> ui.go (key handler)
+                         │
+                         ▼
+                    navigation.go (NavigateTo)
+                         │
+                         ├── validateAndSanitizeURL() — blocks dangerous schemes
+                         │
+                         ▼
+                    http.go (FetchPage)
+                         │
+                         ├── cookies sent with request
+                         ├── cookies stored from response (with SameSite)
+                         ├── HSTS header processed (Strict-Transport-Security)
+                         └── binary detection + charset conversion
+                         │
+                         ▼
+                    renderer.go (renderPage)
+                         ├── content_security.go: sanitizeHTML() strips scripts/iframes
+                         ├── goquery: extract links & images
+                         ├── content_security.go: blockExternalResources()
+                         ├── go-readability: extract main article content
+                         └── html_renderer.go: renderNode() for fallback path
+                         │
+                         ▼
+                    textView.SetText() — content displayed in terminal
+```
+
+### Module Groups
+
+| Group                | Files |
+|----------------------|-------|
+| **Core**             | `main.go`, `browser.go`, `types.go`, `config.go`, `theme.go` |
+| **Navigation**       | `navigation.go`, `session.go` |
+| **HTTP & Cookies**   | `http.go`, `cookie.go` |
+| **Rendering**        | `renderer.go`, `html_renderer.go`, `links.go`, `image.go`, `image_preview.go` |
+| **Search**           | `search.go`, `search_highlight.go` |
+| **Security**         | `content_security.go`, `security.go` |
+| **UI**               | `ui.go`, `settings.go`, `settings_modal.go`, `pagination.go` |
+
+---
+
+## ⚙️ Configuration
+
+Configuration is **auto-created** on first launch. Press `s` to open the settings UI.
+
+| Platform | File |
+|----------|------|
+| Linux    | `~/.config/t-browser/config.yaml` |
+| macOS    | `~/Library/Application Support/t-browser/config.yaml` |
+| Windows  | `%APPDATA%\t-browser\config.yaml` |
+
+### All Settings
+
+| Setting                     | Type     | Default                     | Category    | Description |
+|-----------------------------|----------|-----------------------------|-------------|-------------|
+| `user_agent`                | string   | Chrome 91 UA                | Browser     | HTTP User-Agent header |
+| `request_timeout`           | int      | `30` seconds                | Browser     | Request timeout |
+| `proxy`                     | string   | —                           | Network     | Proxy URL |
+| `max_redirects`             | int      | `10`                        | Network     | Max HTTP redirects |
+| `enable_pinning`            | bool     | `false`                     | Network     | Certificate public-key pinning |
+| `enable_hsts`               | bool     | `true`                      | Network     | HSTS (Strict-Transport-Security) |
+| `max_page_size`             | int      | `50` MB                     | Content     | Max response body |
+| `max_image_size`            | int      | `5` MB                      | Content     | Max image file size |
+| `enable_images`             | bool     | `true`                      | Content     | Load images from pages |
+| `enable_content_security`   | bool     | `true`                      | Content     | Strip scripts, iframes, event handlers |
+| `block_external_resources`  | bool     | `true`                      | Content     | Block cross-origin resources |
+| `theme`                     | string   | `dark`                      | UI          | Colour theme |
+| `show_images`               | bool     | `true`                      | UI          | Display images as ASCII |
+| `word_wrap`                 | bool     | `true`                      | UI          | Soft-wrap long lines |
+| `enable_cookies`            | bool     | `true`                      | Privacy     | Cookie storage |
+| `cookie_auto_save`          | bool     | `true`                      | Privacy     | Persist cookies to disk |
+| `enforce_same_site`         | bool     | `true`                      | Privacy     | SameSite=Strict enforcement |
+| `session_auto_save`         | bool     | `true`                      | Privacy     | Auto-save sessions |
+
+### Proxy (Alternative)
 
 ```bash
 export PROXY=http://your-proxy:port
 ./t-browser
 ```
 
-## 🔐 Safety Features
+---
 
-- **URL checking**: Blocks dangerous web addresses
-- **Redirect protection**: Stops endless redirects
-- **Local blocking**: Won't access internal computers
-- **Size limits**: Images limited to 5MB
-- **Content cleaning**: Strips harmful formatting
-- **Config security**: Configuration and cookie files stored securely with appropriate permissions
+## 🛡️ Security
 
-## 🏗️ How It Works
+### Always-Enabled Defences
 
-1. **Fetch**: Gets web pages from the internet
-2. **Clean**: Removes ads, menus, and clutter
-3. **Show**: Displays main content in your terminal
-4. **Handle**: Processes your keyboard commands
-5. **Preview**: Shows images directly in text format
+| Defence                   | What it blocks |
+|---------------------------|----------------|
+| **URL scheme filter**     | `javascript:`, `data:`, `file:`, `vbscript:` |
+| **Internal address block**| `localhost`, `127.*`, `10.*`, `192.168.*`, `172.16-31.*` |
+| **Open redirect guard**   | Redirects must stay on the same host or a subdomain |
+| **Content-type gate**     | Non-HTML responses (images, JSON, etc.) are rejected |
+| **Binary magic check**    | PNG, JPEG, GIF, ZIP, PDF signatures detected and rejected |
+| **Size limits**           | 50 MB pages, 5 MB images |
+| **Charset conversion**    | Latin-1, ISO-8859-*, UTF-16 → UTF-8 |
+| **tview injection**       | Brackets escaped to prevent format-code injection |
+| **Whitespace normaliser** | Consecutive blank lines collapsed |
 
-## 📝 Important Notes
+### Configurable Defences
 
-- **No JavaScript**: Complex interactive sites might not work right
-- **Text focused**: Complex layouts become simple text
-- **Fast**: Uses very little computer power
-- **Keyboard only**: Full control with just your keys
+| Feature                   | Enabled by default? | Config key | How it works |
+|---------------------------|:---:|------------|--------------|
+| **HTML sanitisation**     | ✅ | `enable_content_security` | Strips `<script>`, `<iframe>`, `<object>`, `<embed>`, `<applet>`, all `on*` event handlers, and `javascript:`/`vbscript:` URLs from HTML before rendering |
+| **External resource blocking** | ✅ | `block_external_resources` | Images, iframes, scripts, stylesheets, and `<source>` elements from other origins have their `src`/`href` removed before the page is rendered |
+| **SameSite enforcement**  | ✅ | `enforce_same_site` | Cookies with `SameSite=Strict` are not sent on cross-domain requests. `SameSite=Lax` always allowed (all requests are navigations). `SameSite=None` always allowed. |
+| **HSTS**                  | ✅ | `enable_hsts` | `Strict-Transport-Security` headers are parsed and cached per domain. HTTP requests to HSTS hosts are transparently upgraded to HTTPS. Policies persisted to `~/.config/t-browser/hsts/policies.json`. |
+| **Certificate pinning**   | ❌ | `enable_pinning` + `pinned_keys` | TLS `VerifyConnection` callback checks SHA-256 hashes of the server's SubjectPublicKeyInfo against a configurable list of base64-encoded fingerprints. Standard X.509 verification still runs. |
 
-## 💻 Terminal UI Appearance (Windows vs Linux)
+### Setting Pinned Keys
 
-The appearance of t-browser's terminal interface may look different between Windows and Linux systems. This is due to differences in how terminals work on each platform:
+```yaml
+# ~/.config/t-browser/config.yaml
+enable_pinning: true
+pinned_keys:
+  - "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="   # Replace with your key
+  - "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="   # Backup key
+```
 
-### Why It Looks Different:
+Keys are 32-byte SHA-256 hashes of DER-encoded SubjectPublicKeyInfo, base64-encoded.
 
-- **Terminal Compatibility**: Linux terminals have better support for advanced text formatting and special characters used in the interface
-- **Font Support**: Linux terminals typically use fonts with better Unicode support for drawing borders and UI elements
-- **Color Rendering**: Linux terminals often support more colors and display them more vividly
+---
 
-### How to Improve the Look on Windows:
+## 📝 Notes
 
-- **Use Windows Terminal**: Instead of Command Prompt, download and use Windows Terminal from the Microsoft Store for better appearance
-- **Change Font Settings**: In your terminal settings, choose a font with good Unicode support like Cascadia Code or Consolas
-- **Enable UTF-8**: Make sure your terminal is set to use UTF-8 encoding for proper character display
-- **Update Your Environment**: Newer versions of PowerShell have better support for terminal UIs than Command Prompt
+- **No JavaScript engine** — SPAs and JS-heavy sites won't render as expected
+- **Text-first display** — simplifies complex layouts into readable paragraphs
+- **Fast & lightweight** — designed for minimal CPU/memory usage
+- **Keyboard-only** — fully accessible from any terminal
 
-The functionality remains the same across platforms - the difference is only in visual appearance.
+---
 
-## 🤝 Help Make It Better
+## 🤝 Contributing
 
-Found a problem or want to suggest something? Report it on GitHub!
+```bash
+make test           # Run all tests
+make test-race      # Run with race detector
+make lint           # Run go vet
+make coverage       # Check per-function coverage
+```
 
-## 📄 License
-
-This project is open source under the MIT License.
+All source files follow Go conventions. Tests live alongside the module they test (`*_test.go`).

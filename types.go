@@ -1,6 +1,10 @@
 package main
 
-import "github.com/rivo/tview"
+import (
+	"sync"
+
+	"github.com/rivo/tview"
+)
 
 const ItemsPerPage = 20
 
@@ -13,13 +17,14 @@ type Link struct {
 
 // Browser represents the terminal browser instance
 type Browser struct {
+	mu sync.Mutex
+
 	app                       *tview.Application
 	textView                  *tview.TextView
 	urlInput                  *tview.InputField
 	history                   []string
 	historyIndex              int
 	client                    *HTTPClient
-	cookies                   map[string]*Cookie
 	proxy                     string
 	currentURL                string
 	searchTerm                string

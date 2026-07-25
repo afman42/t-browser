@@ -7,7 +7,6 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-shiori/go-readability"
-	"golang.org/x/net/html"
 )
 
 // renderPage renders the HTML content to plain text
@@ -20,12 +19,18 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 		return
 	}
 
+	// ----- Content Security -----
+	processedHTML := htmlContent
+	if b.config != nil && b.config.EnableContentSecurity {
+		processedHTML = sanitizeHTML(processedHTML)
+	}
+
 	// Extract all links and images from the document
 	var allLinks []Link
 	linkCounter := 0
 
 	// Parse HTML to extract links efficiently
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(processedHTML))
 	if err != nil {
 		// If parsing fails, fall back to the original method
 		b.renderPageFallback(htmlContent)
@@ -60,14 +65,20 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 		}
 	})
 
+	// Block external resources in the goquery document.
+	if b.config != nil && b.config.BlockExternalResources {
+		blockExternalResources(doc, parsedURL)
+	}
+
+	// Extract images from the doc AFTER blockExternalResources (so external
+	// images are excluded).
+	images := extractImagesFromDoc(doc, parsedURL)
+
 	// Free the DOM document memory as soon as we're done with link extraction
 	doc = nil
 
-	// Extract all images from the document
-	images := b.extractImagesFromHTML(htmlContent, parsedURL)
-
 	// Use go-readability to extract the main content
-	article, err := readability.FromReader(strings.NewReader(htmlContent), parsedURL)
+	article, err := readability.FromReader(strings.NewReader(processedHTML), parsedURL)
 	if err != nil {
 		// If readability fails, fall back to the original method
 		b.renderPageFallback(htmlContent)
@@ -210,46 +221,32 @@ func (b *Browser) extractLinksFromContent(content string, baseURL *url.URL) []Li
 	return []Link{}
 }
 
-// extractImagesFromHTML extracts images from HTML document
-func (b *Browser) extractImagesFromHTML(htmlContent string, baseURL *url.URL) []Image {
-	var images []Image
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
-	if err != nil {
-		return images // Return empty if parsing fails
+// extractImagesFromDoc extracts images from an already-parsed goquery document.
+// It respects any previous blocking done by blockExternalResources (images with
+// empty src after blocking are skipped).
+func extractImagesFromDoc(doc *goquery.Document, baseURL *url.URL) []Image {
+	if doc == nil || baseURL == nil {
+		return nil
 	}
 
-	// Find all images in the document
-	doc.Find("img").Each(func(i int, s *goquery.Selection) {
-		// Get the src attribute
-		src, srcExists := s.Attr("src")
-		if !srcExists {
-			return // Skip if no src attribute
+	var images []Image
+	doc.Find("img[src]").Each(func(i int, s *goquery.Selection) {
+		src, _ := s.Attr("src")
+		if src == "" {
+			return // blocked by content security or no src
 		}
+		alt, _ := s.Attr("alt")
+		title, _ := s.Attr("title")
 
-		// Get alt text
-		alt, altExists := s.Attr("alt")
-		if !altExists {
-			alt = "" // Default to empty if no alt text
-		}
-
-		// Get title attribute
-		title, titleExists := s.Attr("title")
-		if !titleExists {
-			title = "" // Default to empty if no title
-		}
-
-		// Resolve relative URLs
+		// Resolve relative URLs.
 		imageURL := src
 		if strings.HasPrefix(src, "/") {
-			// Absolute path on the same host
 			imageURL = fmt.Sprintf("%s://%s%s", baseURL.Scheme, baseURL.Host, src)
 		} else if !strings.HasPrefix(src, "http") {
-			// Relative path, combine with base URL
 			baseURLPath := fmt.Sprintf("%s://%s", baseURL.Scheme, baseURL.Host)
 			if strings.HasSuffix(baseURL.Path, "/") {
 				imageURL = baseURLPath + baseURL.Path + src
 			} else {
-				// Get directory of current page
 				dir := strings.TrimRight(baseURL.Path, "/")
 				if lastSlash := strings.LastIndex(dir, "/"); lastSlash != -1 {
 					dir = dir[:lastSlash+1]
@@ -267,16 +264,18 @@ func (b *Browser) extractImagesFromHTML(htmlContent string, baseURL *url.URL) []
 			Src:   src,
 		})
 	})
-
-	// Free the DOM document memory as soon as we're done with image extraction
-	doc = nil
-
 	return images
 }
 
 // renderPageFallback renders HTML content using the original method when readability fails
 func (b *Browser) renderPageFallback(htmlContent string) {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	// ----- Content Security -----
+	processedHTML := htmlContent
+	if b.config != nil && b.config.EnableContentSecurity {
+		processedHTML = sanitizeHTML(processedHTML)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(processedHTML))
 	if err != nil {
 		b.displayError(fmt.Sprintf("Error parsing HTML: %v", err))
 		return
@@ -311,8 +310,14 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 		}
 	})
 
-	// Extract all images from the document (this will parse the content again, but it's for fallback)
-	images := b.extractImagesFromHTML(htmlContent, currentURLParsed)
+	// Block external resources BEFORE rendering, so external iframes/scripts
+	// don't appear in the rendered output.
+	if b.config != nil && b.config.BlockExternalResources {
+		blockExternalResources(doc, currentURLParsed)
+	}
+
+	// Extract images from the doc AFTER blockExternalResources.
+	images := extractImagesFromDoc(doc, currentURLParsed)
 
 	var result strings.Builder
 	tabs := 0
@@ -352,207 +357,3 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 	result.Reset()
 }
 
-// renderNode renders an individual HTML node to text
-func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int) {
-	switch node.Type {
-	case html.TextNode:
-		text := strings.TrimSpace(node.Data)
-		if text != "" {
-			// Add indentation if needed
-			if result.Len() > 0 && result.String()[result.Len()-1] != ' ' && result.String()[result.Len()-1] != '\n' {
-				result.WriteString(" ")
-			}
-			// Escape special characters that might interfere with tview formatting
-			text = strings.ReplaceAll(text, "[", "\\[")
-			text = strings.ReplaceAll(text, "]", "\\]")
-			text = strings.ReplaceAll(text, "*", "\\*")
-			text = strings.ReplaceAll(text, "_", "\\_")
-			text = strings.ReplaceAll(text, "`", "\\`")
-			result.WriteString(text)
-		}
-	case html.ElementNode:
-		tag := node.DataAtom.String()
-		isBlockElement := b.isBlockElement(tag)
-
-		// Handle special tags with improved formatting
-		switch tag {
-		case "h1":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			result.WriteString("[::b]# ")
-			*tabs += 2
-		case "h2":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			result.WriteString("[::b]## ")
-			*tabs += 2
-		case "h3":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			result.WriteString("[::b]### ")
-			*tabs += 2
-		case "h4":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			result.WriteString("[::b]#### ")
-			*tabs += 2
-		case "h5":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			result.WriteString("[::b]##### ")
-			*tabs += 2
-		case "h6":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			result.WriteString("[::b]###### ")
-			*tabs += 2
-		case "p":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			for i := 0; i < *tabs; i++ {
-				result.WriteString("  ") // 2 spaces per tab level
-			}
-		case "b", "strong":
-			result.WriteString("[::b]") // Bold formatting
-		case "i", "em":
-			result.WriteString("[::i]") // Italic formatting
-		case "u", "ins":
-			result.WriteString("[::b]") // Bold instead of underline for emphasis
-		case "del", "s", "strike":
-			result.WriteString("~~") // Strikethrough formatting
-		case "code":
-			result.WriteString("`") // Code formatting
-		case "pre":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			result.WriteString("```\n") // Code block start
-		case "blockquote":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			for i := 0; i < *tabs; i++ {
-				result.WriteString("  ")
-			}
-			result.WriteString("> ") // Blockquote indicator
-			*tabs += 1
-		case "a":
-			// Add link formatting but keep the content readable
-			// We'll handle the link reference separately in the browser
-			break
-		case "ul", "ol":
-			*tabs += 1
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-		case "li":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			for i := 0; i < *tabs-1; i++ {
-				result.WriteString("  ") // 2 spaces per indentation level
-			}
-			if b.isParent(node, "ol") {
-				// Handle ordered list
-				index := b.getListItemIndex(node)
-				result.WriteString(fmt.Sprintf("%d. ", index))
-			} else {
-				result.WriteString("* ")
-			}
-		case "br":
-			result.WriteString("\n")
-		case "div":
-			if isBlockElement && result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-		case "hr":
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-			result.WriteString("---\n") // Horizontal rule
-		}
-
-		// Process children
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			b.renderNode(child, result, tabs)
-		}
-
-		// Close tags with appropriate formatting
-		switch tag {
-		case "h1", "h2", "h3", "h4", "h5", "h6":
-			*tabs -= 2
-			result.WriteString("[-]\n") // Close bold formatting and add newline
-		case "b", "strong":
-			result.WriteString("[-]") // Close bold formatting
-		case "i", "em":
-			result.WriteString("[-]") // Close italic formatting
-		case "u", "ins":
-			result.WriteString("[-]") // Close underline formatting
-		case "del", "s", "strike":
-			result.WriteString("~~") // Close strikethrough formatting
-		case "code":
-			result.WriteString("`") // Close code formatting
-		case "pre":
-			result.WriteString("\n```") // Code block end
-		case "blockquote":
-			*tabs -= 1
-		case "a":
-			if href, exists := b.getAttribute(node, "href"); exists {
-				// Format the link in a more readable way
-				result.WriteString(fmt.Sprintf(" [%s]", href))
-			}
-		case "ul", "ol":
-			*tabs -= 1
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-		}
-
-		// Add newline after block elements (except for list items which are handled individually)
-		if isBlockElement && tag != "li" && tag != "h1" && tag != "h2" && tag != "h3" && tag != "h4" && tag != "h5" && tag != "h6" && tag != "pre" {
-			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
-				result.WriteString("\n")
-			}
-		}
-	}
-}
-
-// sanitizeForTview sanitizes text to prevent tview formatting code injection
-func (b *Browser) sanitizeForTview(text string) string {
-	// First, protect any existing tview formatting by temporarily replacing them
-	// This regex-like replacement looks for [:: followed by formatting chars and ]
-	protectedText := text
-	formattingRegex := [][2]string{
-		{"[::b]", "TBFMTBOLD"},
-		{"[::i]", "TBFMTITALIC"},
-		{"[-]", "TBFMTEND"},
-	}
-
-	// Replace formatting codes with temporary markers
-	for _, fmtPair := range formattingRegex {
-		protectedText = strings.ReplaceAll(protectedText, fmtPair[0], fmtPair[1])
-	}
-
-	// Now escape any remaining [ and ] that aren't part of formatting
-	protectedText = strings.ReplaceAll(protectedText, "[", "\\[")
-	protectedText = strings.ReplaceAll(protectedText, "]", "\\]")
-
-	// Restore the formatting codes
-	for _, fmtPair := range formattingRegex {
-		protectedText = strings.ReplaceAll(protectedText, fmtPair[1], fmtPair[0])
-	}
-
-	// Additional formatting characters that might be relevant
-	protectedText = strings.ReplaceAll(protectedText, "*", "\\*")
-	protectedText = strings.ReplaceAll(protectedText, "_", "\\_")
-	protectedText = strings.ReplaceAll(protectedText, "`", "\\`")
-
-	return protectedText
-}

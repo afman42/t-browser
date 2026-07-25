@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -28,16 +29,24 @@ type Config struct {
 	SessionHistorySize int   `mapstructure:"session_history_size"`
 	
 	// Network settings
-	Proxy         string `mapstructure:"proxy"`
-	RequestTimeout int    `mapstructure:"request_timeout"`
-	MaxRedirects  int    `mapstructure:"max_redirects"`
+	Proxy          string   `mapstructure:"proxy"`
+	RequestTimeout int      `mapstructure:"request_timeout"`
+	MaxRedirects   int      `mapstructure:"max_redirects"`
+	EnablePinning  bool     `mapstructure:"enable_pinning"`
+	PinnedKeys     []string `mapstructure:"pinned_keys"`
+	EnableHSTS     bool     `mapstructure:"enable_hsts"`
 	
 	// Content settings
-	MaxPageSize     int64 `mapstructure:"max_page_size"`
-	MaxImageSize    int64 `mapstructure:"max_image_size"`
-	EnableImages    bool  `mapstructure:"enable_images"`
-	EnableScripts   bool  `mapstructure:"enable_scripts"` // For info, won't actually execute
-	EnableCookies   bool  `mapstructure:"enable_cookies"`
+	MaxPageSize         int64 `mapstructure:"max_page_size"`
+	MaxImageSize        int64 `mapstructure:"max_image_size"`
+	EnableImages        bool  `mapstructure:"enable_images"`
+	EnableScripts       bool  `mapstructure:"enable_scripts"` // For info, won't actually execute
+	EnableCookies       bool  `mapstructure:"enable_cookies"`
+	EnableContentSecurity bool `mapstructure:"enable_content_security"`
+	BlockExternalResources bool `mapstructure:"block_external_resources"`
+	
+	// Cookie security
+	EnforceSameSite     bool  `mapstructure:"enforce_same_site"`
 	
 	// UI settings
 	Theme      string `mapstructure:"theme"`
@@ -48,25 +57,48 @@ type Config struct {
 // GetDefaultConfig returns the default configuration
 func GetDefaultConfig() Config {
 	return Config{
-		UserAgent:        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-		WindowSizeX:      80,
-		WindowSizeY:      24,
-		CookieFile:       "cookies.json",
-		CookieAutoSave:   true,
-		SessionFile:      "session.json",
-		SessionAutoSave:  true,
+		UserAgent:          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		WindowSizeX:        80,
+		WindowSizeY:        24,
+		CookieFile:         "cookies.json",
+		CookieAutoSave:     true,
+		SessionFile:        "session.json",
+		SessionAutoSave:    true,
 		SessionHistorySize: 50,
-		Proxy:            "",
-		RequestTimeout:   30,
-		MaxRedirects:     10,
-		MaxPageSize:      50 * 1024 * 1024, // 50MB
-		MaxImageSize:     5 * 1024 * 1024,  // 5MB
-		EnableImages:     true,
-		EnableScripts:    false,
-		EnableCookies:    true,
-		Theme:           "dark", // Changed from "default" to "dark" as the default theme
-		ShowImages:      true,
-		WordWrap:        true,
+		Proxy:              "",
+		RequestTimeout:     30,
+		MaxRedirects:       10,
+		EnablePinning:      false,
+		PinnedKeys:         nil,
+		EnableHSTS:         true,
+		MaxPageSize:        50 * 1024 * 1024, // 50MB
+		MaxImageSize:       5 * 1024 * 1024,  // 5MB
+		EnableImages:       true,
+		EnableScripts:      false,
+		EnableCookies:      true,
+		EnableContentSecurity: true,
+		BlockExternalResources: true,
+		EnforceSameSite:    true,
+		Theme:              "dark",
+		ShowImages:         true,
+		WordWrap:           true,
+	}
+}
+
+// applyConfigToViper sets every field from cfg as a Viper key using its
+// mapstructure tag.  This is the single source of truth for the key list;
+// InitializeConfig, WriteDefaultConfig, and WriteToFile all call this
+// instead of duplicating 17 identical viper.Set("...", ...) calls.
+func applyConfigToViper(cfg Config) {
+	v := reflect.ValueOf(cfg)
+	t := v.Type()
+	for i := range t.NumField() {
+		f := t.Field(i)
+		tag := f.Tag.Get("mapstructure")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		viper.Set(tag, v.Field(i).Interface())
 	}
 }
 
@@ -135,27 +167,32 @@ func InitializeConfig() error {
 	// Also look in current directory
 	viper.AddConfigPath(".")
 
-	// Set default values
-	defaultConfig := GetDefaultConfig()
-	viper.SetDefault("user_agent", defaultConfig.UserAgent)
-	viper.SetDefault("window_size_x", defaultConfig.WindowSizeX)
-	viper.SetDefault("window_size_y", defaultConfig.WindowSizeY)
-	viper.SetDefault("cookie_file", defaultConfig.CookieFile)
-	viper.SetDefault("cookie_auto_save", defaultConfig.CookieAutoSave)
-	viper.SetDefault("session_file", defaultConfig.SessionFile)
-	viper.SetDefault("session_auto_save", defaultConfig.SessionAutoSave)
-	viper.SetDefault("session_history_size", defaultConfig.SessionHistorySize)
-	viper.SetDefault("proxy", defaultConfig.Proxy)
-	viper.SetDefault("request_timeout", defaultConfig.RequestTimeout)
-	viper.SetDefault("max_redirects", defaultConfig.MaxRedirects)
-	viper.SetDefault("max_page_size", defaultConfig.MaxPageSize)
-	viper.SetDefault("max_image_size", defaultConfig.MaxImageSize)
-	viper.SetDefault("enable_images", defaultConfig.EnableImages)
-	viper.SetDefault("enable_scripts", defaultConfig.EnableScripts)
-	viper.SetDefault("enable_cookies", defaultConfig.EnableCookies)
-	viper.SetDefault("theme", defaultConfig.Theme)
-	viper.SetDefault("show_images", defaultConfig.ShowImages)
-	viper.SetDefault("word_wrap", defaultConfig.WordWrap)
+	// Set default values by reflecting over the Config struct
+	viper.SetDefault("user_agent", GetDefaultConfig().UserAgent)
+	viper.SetDefault("window_size_x", GetDefaultConfig().WindowSizeX)
+	viper.SetDefault("window_size_y", GetDefaultConfig().WindowSizeY)
+	viper.SetDefault("cookie_file", GetDefaultConfig().CookieFile)
+	viper.SetDefault("cookie_auto_save", GetDefaultConfig().CookieAutoSave)
+	viper.SetDefault("session_file", GetDefaultConfig().SessionFile)
+	viper.SetDefault("session_auto_save", GetDefaultConfig().SessionAutoSave)
+	viper.SetDefault("session_history_size", GetDefaultConfig().SessionHistorySize)
+	viper.SetDefault("proxy", GetDefaultConfig().Proxy)
+	viper.SetDefault("request_timeout", GetDefaultConfig().RequestTimeout)
+	viper.SetDefault("max_redirects", GetDefaultConfig().MaxRedirects)
+	viper.SetDefault("enable_pinning", GetDefaultConfig().EnablePinning)
+	viper.SetDefault("pinned_keys", GetDefaultConfig().PinnedKeys)
+	viper.SetDefault("enable_hsts", GetDefaultConfig().EnableHSTS)
+	viper.SetDefault("max_page_size", GetDefaultConfig().MaxPageSize)
+	viper.SetDefault("max_image_size", GetDefaultConfig().MaxImageSize)
+	viper.SetDefault("enable_images", GetDefaultConfig().EnableImages)
+	viper.SetDefault("enable_scripts", GetDefaultConfig().EnableScripts)
+	viper.SetDefault("enable_cookies", GetDefaultConfig().EnableCookies)
+	viper.SetDefault("enable_content_security", GetDefaultConfig().EnableContentSecurity)
+	viper.SetDefault("block_external_resources", GetDefaultConfig().BlockExternalResources)
+	viper.SetDefault("enforce_same_site", GetDefaultConfig().EnforceSameSite)
+	viper.SetDefault("theme", GetDefaultConfig().Theme)
+	viper.SetDefault("show_images", GetDefaultConfig().ShowImages)
+	viper.SetDefault("word_wrap", GetDefaultConfig().WordWrap)
 
 	// Try to read the config file
 	err := viper.ReadInConfig()
@@ -190,27 +227,8 @@ func InitializeConfig() error {
 
 // WriteDefaultConfig writes the default configuration to file
 func WriteDefaultConfig(configDir string) error {
-	viper.Set("user_agent", GetDefaultConfig().UserAgent)
-	viper.Set("window_size_x", GetDefaultConfig().WindowSizeX)
-	viper.Set("window_size_y", GetDefaultConfig().WindowSizeY)
-	viper.Set("cookie_file", GetDefaultConfig().CookieFile)
-	viper.Set("cookie_auto_save", GetDefaultConfig().CookieAutoSave)
-	viper.Set("session_file", GetDefaultConfig().SessionFile)
-	viper.Set("session_auto_save", GetDefaultConfig().SessionAutoSave)
-	viper.Set("session_history_size", GetDefaultConfig().SessionHistorySize)
-	viper.Set("proxy", GetDefaultConfig().Proxy)
-	viper.Set("request_timeout", GetDefaultConfig().RequestTimeout)
-	viper.Set("max_redirects", GetDefaultConfig().MaxRedirects)
-	viper.Set("max_page_size", GetDefaultConfig().MaxPageSize)
-	viper.Set("max_image_size", GetDefaultConfig().MaxImageSize)
-	viper.Set("enable_images", GetDefaultConfig().EnableImages)
-	viper.Set("enable_scripts", GetDefaultConfig().EnableScripts)
-	viper.Set("enable_cookies", GetDefaultConfig().EnableCookies)
-	viper.Set("theme", GetDefaultConfig().Theme)
-	viper.Set("show_images", GetDefaultConfig().ShowImages)
-	viper.Set("word_wrap", GetDefaultConfig().WordWrap)
+	applyConfigToViper(GetDefaultConfig())
 
-	// Write to file
 	configPath := filepath.Join(configDir, "config.yaml")
 	return viper.WriteConfigAs(configPath)
 }
@@ -345,28 +363,8 @@ func GetLatestSessionFile(configDir string) string {
 
 // WriteToFile writes the current configuration to the config file
 func (c *Config) WriteToFile(configDir string) error {
-	// Use Viper to set all config values
-	viper.Set("user_agent", c.UserAgent)
-	viper.Set("window_size_x", c.WindowSizeX)
-	viper.Set("window_size_y", c.WindowSizeY)
-	viper.Set("cookie_file", c.CookieFile)
-	viper.Set("cookie_auto_save", c.CookieAutoSave)
-	viper.Set("session_file", c.SessionFile)
-	viper.Set("session_auto_save", c.SessionAutoSave)
-	viper.Set("session_history_size", c.SessionHistorySize)
-	viper.Set("proxy", c.Proxy)
-	viper.Set("request_timeout", c.RequestTimeout)
-	viper.Set("max_redirects", c.MaxRedirects)
-	viper.Set("max_page_size", c.MaxPageSize)
-	viper.Set("max_image_size", c.MaxImageSize)
-	viper.Set("enable_images", c.EnableImages)
-	viper.Set("enable_scripts", c.EnableScripts)
-	viper.Set("enable_cookies", c.EnableCookies)
-	viper.Set("theme", c.Theme)
-	viper.Set("show_images", c.ShowImages)
-	viper.Set("word_wrap", c.WordWrap)
+	applyConfigToViper(*c)
 
-	// Write to the config file
 	configPath := filepath.Join(configDir, "config.yaml")
 	return viper.WriteConfigAs(configPath)
 }
