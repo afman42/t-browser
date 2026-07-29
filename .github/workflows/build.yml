@@ -8,6 +8,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,15 +19,39 @@ jobs:
           go-version: '1.24'
           cache: true
 
-      - name: Get dependencies
-        run: go mod tidy
+      - name: Download dependencies
+        run: go mod download
 
-      - name: Lint
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Gofmt check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Files need formatting:"
+            echo "$unformatted"
+            gofmt -d $unformatted
+            exit 1
+          fi
+
+      - name: Go vet
         run: go vet ./...
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-latest
+          - os: macos
+            runner: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,8 +62,11 @@ jobs:
           go-version: '1.24'
           cache: true
 
-      - name: Get dependencies
-        run: go mod tidy
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
 
       - name: Test
         run: go test ./... -v -count=1
@@ -49,6 +77,7 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,8 +88,8 @@ jobs:
           go-version: '1.24'
           cache: true
 
-      - name: Get dependencies
-        run: go mod tidy
+      - name: Download dependencies
+        run: go mod download
 
       - name: Coverage
         run: |
@@ -72,14 +101,34 @@ jobs:
         with:
           name: coverage-report
           path: coverage.out
+          retention-days: 14
 
   build:
     name: Build (${{ matrix.os }}/${{ matrix.arch }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
-        os: [linux, windows]
-        arch: [amd64, arm64]
+        include:
+          - os: linux
+            goos: linux
+            arch: amd64
+          - os: linux
+            goos: linux
+            arch: arm64
+          - os: windows
+            goos: windows
+            arch: amd64
+          - os: windows
+            goos: windows
+            arch: arm64
+          - os: macos
+            goos: darwin
+            arch: amd64
+          - os: macos
+            goos: darwin
+            arch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,26 +139,29 @@ jobs:
           go-version: '1.24'
           cache: true
 
-      - name: Get dependencies
-        run: go mod tidy
+      - name: Download dependencies
+        run: go mod download
 
       - name: Build
         run: |
           ext=""
-          if [ "${{ matrix.os }}" = "windows" ]; then ext=".exe"; fi
-          env GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
+          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+          env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.arch }} \
             go build -ldflags="-s -w" -o "./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}"
 
-      - name: Install UPX (Compress file)
+      - name: Install UPX (Compress binary)
+        if: matrix.goos != 'darwin'
+        continue-on-error: true
         run: |
           sudo apt update
           sudo apt install -y upx-ucl
           ext=""
-          if [ "${{ matrix.os }}" = "windows" ]; then ext=".exe"; fi
-          upx ./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+          upx --best "./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}" || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: t-browser-${{ matrix.os }}-${{ matrix.arch }}
           path: ./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}*
+          retention-days: 30

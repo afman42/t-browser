@@ -370,7 +370,7 @@ func (b *Browser) findSearchMatchesWithPositions(text, term string, caseSensitiv
 
 // scrollToMatch ensures the text view shows the highlighted content
 func (b *Browser) scrollToMatch(match SearchMatch) {
-	text := b.textView.GetText(false)
+	text := b.currentTab().textView.GetText(false)
 	lines := strings.Split(text, "\n")
 
 	// Find the line where the match occurs
@@ -386,6 +386,6 @@ func (b *Browser) scrollToMatch(match SearchMatch) {
 		charCount = nextCharCount
 	}
 
-	b.textView.ScrollTo(approxLineNum, 0)
-	b.app.SetFocus(b.textView)
+	b.currentTab().textView.ScrollTo(approxLineNum, 0)
+	b.app.SetFocus(b.currentTab().textView)
 }

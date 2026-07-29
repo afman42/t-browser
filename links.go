@@ -24,4 +24,3 @@ func (b *Browser) extractVisibleLinks(content string, allLinks []Link) []Link {
 
 	return visibleLinks
 }
-

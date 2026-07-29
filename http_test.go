@@ -10,10 +10,10 @@ import (
 func TestCookieMatches(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
-		name    string
-		cookie  Cookie
-		rawURL  string
-		want    bool
+		name   string
+		cookie Cookie
+		rawURL string
+		want   bool
 	}{
 		{
 			name:   "exact domain match",
@@ -99,9 +99,9 @@ func TestCookieMatches(t *testing.T) {
 
 func TestMatchesDomain(t *testing.T) {
 	tests := []struct {
-		host       string
-		domain     string
-		want       bool
+		host   string
+		domain string
+		want   bool
 	}{
 		{"example.com", "example.com", true},
 		{"sub.example.com", ".example.com", true},

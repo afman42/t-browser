@@ -87,4 +87,3 @@ func (b *Browser) downloadImage(imageURL string) error {
 
 	return nil
 }
-

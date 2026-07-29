@@ -36,19 +36,19 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("[::b]# ")
+			result.WriteString("\n[::b]# ")
 			*tabs += 2
 		case "h2":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("[::b]## ")
+			result.WriteString("\n[::b]## ")
 			*tabs += 2
 		case "h3":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("[::b]### ")
+			result.WriteString("\n[::b]### ")
 			*tabs += 2
 		case "h4":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
@@ -84,12 +84,12 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 		case "del", "s", "strike":
 			result.WriteString("~~") // Strikethrough formatting
 		case "code":
-			result.WriteString("`") // Code formatting
+			result.WriteString("[::b]`[::-]") // Code formatting with bold monospace
 		case "pre":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("```\n") // Code block start
+			result.WriteString("[::b]```[::-]\n") // Code block start with monospace styling
 		case "blockquote":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
@@ -132,6 +132,9 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 				result.WriteString("\n")
 			}
 			result.WriteString("---\n") // Horizontal rule
+		case "table":
+			b.renderTable(node, result, tabs)
+			return // children already processed by renderTable
 		}
 
 		// Process children
@@ -141,9 +144,20 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 
 		// Close tags with appropriate formatting
 		switch tag {
-		case "h1", "h2", "h3", "h4", "h5", "h6":
+		case "h1":
 			*tabs -= 2
-			result.WriteString("[-]\n") // Close bold formatting and add newline
+			result.WriteString("[-]\n")
+			result.WriteString("────────────────────────────────────────\n")
+		case "h2":
+			*tabs -= 2
+			result.WriteString("[-]\n")
+			result.WriteString("────────────────────────────────\n")
+		case "h3":
+			*tabs -= 2
+			result.WriteString("[-]\n")
+		case "h4", "h5", "h6":
+			*tabs -= 2
+			result.WriteString("[-]\n")
 		case "b", "strong":
 			result.WriteString("[-]") // Close bold formatting
 		case "i", "em":
@@ -155,7 +169,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 		case "code":
 			result.WriteString("`") // Close code formatting
 		case "pre":
-			result.WriteString("\n```") // Code block end
+			result.WriteString("\n[::b]```[::-]") // Code block end
 		case "blockquote":
 			*tabs -= 1
 		case "a":
@@ -177,6 +191,139 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			}
 		}
 	}
+}
+
+func (b *Browser) renderTable(tableNode *html.Node, result *strings.Builder, tabs *int) {
+	if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+		result.WriteString("\n")
+	}
+
+	var rows [][]string
+	var headerRow []string
+
+	collectCells := func(rowNode *html.Node) []string {
+		var cells []string
+		for cell := rowNode.FirstChild; cell != nil; cell = cell.NextSibling {
+			if cell.Type == html.ElementNode {
+				ctag := cell.DataAtom.String()
+				if ctag == "td" || ctag == "th" {
+					var cellText strings.Builder
+					for child := cell.FirstChild; child != nil; child = child.NextSibling {
+						b.renderNode(child, &cellText, tabs)
+					}
+					cells = append(cells, strings.TrimSpace(removeTviewFormatting(cellText.String())))
+				}
+			}
+		}
+		return cells
+	}
+
+	for child := tableNode.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode {
+			continue
+		}
+		childTag := child.DataAtom.String()
+		switch childTag {
+		case "thead", "tbody", "tfoot":
+			for tr := child.FirstChild; tr != nil; tr = tr.NextSibling {
+				if tr.Type == html.ElementNode && tr.DataAtom.String() == "tr" {
+					cells := collectCells(tr)
+					if len(cells) > 0 {
+						if childTag == "thead" {
+							headerRow = cells
+						} else {
+							rows = append(rows, cells)
+						}
+					}
+				}
+			}
+		case "tr":
+			cells := collectCells(child)
+			if len(cells) > 0 {
+				if isInThead(child) {
+					headerRow = cells
+				} else {
+					rows = append(rows, cells)
+				}
+			}
+		}
+	}
+
+	allRows := [][]string{}
+	if len(headerRow) > 0 {
+		allRows = append(allRows, headerRow)
+	}
+	allRows = append(allRows, rows...)
+	if len(allRows) == 0 {
+		return
+	}
+
+	maxCols := 0
+	for _, row := range allRows {
+		if len(row) > maxCols {
+			maxCols = len(row)
+		}
+	}
+
+	const maxColWidth = 40
+	colWidths := make([]int, maxCols)
+	for _, row := range allRows {
+		for i, cell := range row {
+			if i < maxCols && len(cell) > colWidths[i] {
+				colWidths[i] = len(cell)
+			}
+		}
+	}
+	for i := range colWidths {
+		if colWidths[i] > maxColWidth {
+			colWidths[i] = maxColWidth
+		}
+	}
+
+	drawHBorder := func(left, mid, right string) {
+		result.WriteString(left)
+		for i := 0; i < maxCols; i++ {
+			for j := 0; j < colWidths[i]+2; j++ {
+				result.WriteString("─")
+			}
+			if i < maxCols-1 {
+				result.WriteString(mid)
+			}
+		}
+		result.WriteString(right + "\n")
+	}
+
+	drawRow := func(row []string, bold bool) {
+		result.WriteString("│")
+		for i := 0; i < maxCols; i++ {
+			cellText := ""
+			if i < len(row) {
+				cellText = row[i]
+				if len(cellText) > maxColWidth {
+					cellText = cellText[:maxColWidth-3] + "..."
+				}
+			}
+			if bold {
+				result.WriteString(fmt.Sprintf(" [::b]%-*s[::-] ", colWidths[i], cellText))
+			} else {
+				result.WriteString(fmt.Sprintf(" %-*s ", colWidths[i], cellText))
+			}
+			if i < maxCols-1 {
+				result.WriteString("│")
+			}
+		}
+		result.WriteString("│\n")
+	}
+
+	drawHBorder("┌", "┬", "┐")
+	if len(headerRow) > 0 {
+		drawRow(headerRow, true)
+		drawHBorder("├", "┼", "┤")
+	}
+	for _, row := range rows {
+		drawRow(row, false)
+	}
+	drawHBorder("└", "┴", "┘")
 }
 
 // sanitizeForTview sanitizes text to prevent tview formatting code injection
@@ -228,6 +375,18 @@ func isParent(node *html.Node, tag string) bool {
 	parent := node.Parent
 	for parent != nil {
 		if parent.DataAtom.String() == tag {
+			return true
+		}
+		parent = parent.Parent
+	}
+	return false
+}
+
+// isInThead checks if a node is inside a thead element
+func isInThead(node *html.Node) bool {
+	parent := node.Parent
+	for parent != nil {
+		if parent.DataAtom.String() == "thead" {
 			return true
 		}
 		parent = parent.Parent

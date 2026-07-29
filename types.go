@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"sync"
 
 	"github.com/rivo/tview"
@@ -8,40 +9,76 @@ import (
 
 const ItemsPerPage = 20
 
-// Link represents a hyperlink on the page
 type Link struct {
 	URL      string
 	Text     string
-	Position int // Position in content for navigation
+	Position int
 }
 
-// Browser represents the terminal browser instance
+type Tab struct {
+	textView                   *tview.TextView
+	history                    []string
+	historyIndex               int
+	currentURL                 string
+	searchTerm                 string
+	originalContent            string
+	originalUnprocessedContent string
+	links                      []Link
+	images                     []Image
+	currentLinkIndex           int
+	searchMatches              []SearchMatch
+	returningFromSearchResult  bool
+	displayToMatchIndex        map[int]int
+	currentMatchStart          int
+	currentMatchEnd            int
+	metaRefreshCancel          context.CancelFunc
+}
+
+func newTab() *Tab {
+	tv := tview.NewTextView()
+	tv.SetDynamicColors(true)
+	tv.SetRegions(true)
+	tv.SetWordWrap(true)
+	tv.SetScrollable(true)
+	tv.SetBorder(true)
+	tv.SetTitle("Terminal Browser - Press Ctrl+C to quit, / for search")
+	return &Tab{
+		textView:         tv,
+		history:          make([]string, 0),
+		historyIndex:     -1,
+		currentLinkIndex: -1,
+	}
+}
+
 type Browser struct {
 	mu sync.Mutex
 
-	app                       *tview.Application
-	textView                  *tview.TextView
-	urlInput                  *tview.InputField
-	history                   []string
-	historyIndex              int
-	client                    *HTTPClient
-	proxy                     string
-	currentURL                string
-	searchTerm                string
-	originalContent           string  // Store original content for search (theme-processed)
-	originalUnprocessedContent string // Store unprocessed content with theme-dependent formatting
-	links                     []Link  // Store links found on the page
-	images                    []Image // Store images found on the page
-	currentLinkIndex          int     // Index of currently highlighted link
-	forceUA                   string
-	loadingView               *tview.TextView
-	isLoading                 bool
-	loadingStop               chan struct{} // Channel to signal loading animation to stop
-	searchMatches             []SearchMatch // Store search matches for navigation
-	returningFromSearchResult bool          // Flag to track if returning from a selected search result
-	config                    *Config       // Configuration for the browser
-	settingsActive            bool          // Flag to track if settings page is active
-	settingsChanged           bool          // Flag to track if settings have been changed
-	rightColumnEmpty          bool          // Flag to track if right column is empty
-	displayToMatchIndex       map[int]int   // Map display list index to internal search match index
+	app         *tview.Application
+	urlInput    *tview.InputField
+	statusBar   *tview.TextView
+	tabBar      *tview.TextView
+	client      *HTTPClient
+	proxy       string
+	forceUA     string
+	isLoading   bool
+	loadingStop chan struct{}
+	config      *Config
+
+	tabs      []*Tab
+	activeTab int
+
+	settingsActive   bool
+	settingsChanged  bool
+	rightColumnEmpty bool
+}
+
+func (b *Browser) currentTab() *Tab {
+	if len(b.tabs) == 0 {
+		b.tabs = []*Tab{newTab()}
+		b.activeTab = 0
+	}
+	if b.activeTab < 0 || b.activeTab >= len(b.tabs) {
+		b.activeTab = 0
+	}
+	return b.tabs[b.activeTab]
 }

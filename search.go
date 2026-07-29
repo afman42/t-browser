@@ -18,7 +18,7 @@ type SearchMatch struct {
 // startSearch starts the search functionality
 func (b *Browser) startSearch() {
 	// Initialize the mapping
-	b.displayToMatchIndex = make(map[int]int)
+	b.currentTab().displayToMatchIndex = make(map[int]int)
 
 	// Create a modal search with input field and results list
 	inputField := tview.NewInputField().
@@ -27,25 +27,20 @@ func (b *Browser) startSearch() {
 			if key == tcell.KeyEnter || key == tcell.KeyEscape {
 				// Return to main view when Enter or Escape is pressed
 				// Only restore original content if we're not returning from a search result selection
-				if !b.returningFromSearchResult && b.searchTerm == "" {
-					b.textView.SetText(b.originalContent)
-				} else if b.returningFromSearchResult && b.searchTerm != "" {
+				if !b.currentTab().returningFromSearchResult && b.currentTab().searchTerm == "" {
+					b.currentTab().textView.SetText(b.currentTab().originalContent)
+				} else if b.currentTab().returningFromSearchResult && b.currentTab().searchTerm != "" {
 					// If returning from selection and search term exists, maintain highlighting
-					highlightedText := b.highlightSearchTerm(b.originalContent, b.searchTerm, true)
-					b.textView.SetText(highlightedText)
+					highlightedText := b.highlightSearchTerm(b.currentTab().originalContent, b.currentTab().searchTerm, true)
+					b.currentTab().textView.SetText(highlightedText)
 				}
 
 				// Reset the flag
-				b.returningFromSearchResult = false
+				b.currentTab().returningFromSearchResult = false
 
 				// Restore the proper flex layout with URL input
-				flex := tview.NewFlex().
-					SetDirection(tview.FlexRow).
-					AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
-					AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
-
-				b.app.SetRoot(flex, true)
-				b.app.SetFocus(b.textView)  // Ensure content view has focus after search
+				b.app.SetRoot(b.mainFlex(), true)
+				b.app.SetFocus(b.currentTab().textView) // Ensure content view has focus after search
 			}
 		})
 
@@ -63,12 +58,12 @@ func (b *Browser) startSearch() {
 	// Set up real-time search
 	inputField.SetChangedFunc(func(text string) {
 		// Update search in real-time as user types
-		b.searchTerm = text
+		b.currentTab().searchTerm = text
 		// By default, perform case-sensitive search
 		matchCount, _ := b.performSearchWithMatches(text, true)
 
 		// Find matches with context for the list
-		b.searchMatches = b.findSearchMatchesWithPositions(b.originalContent, text, true)
+		b.currentTab().searchMatches = b.findSearchMatchesWithPositions(b.currentTab().originalContent, text, true)
 
 		// Update the label to show match count
 		if text != "" {
@@ -81,13 +76,13 @@ func (b *Browser) startSearch() {
 		resultsList.Clear()
 
 		// Update results list with unique match titles
-		if len(b.searchMatches) > 0 {
+		if len(b.currentTab().searchMatches) > 0 {
 			// Use a map to track which line text has already been added to avoid duplicates
 			seenTexts := make(map[string]bool)
 			itemIndex := 1 // Start from 1 for display purposes
 			// Create a mapping to track which internal match index corresponds to each displayed item
 			displayToMatchIndex := make(map[int]int)
-			for i, match := range b.searchMatches {
+			for i, match := range b.currentTab().searchMatches {
 				// Truncate the line text for display if it's too long
 				displayText := match.LineText
 				if len(displayText) > 50 {
@@ -106,15 +101,15 @@ func (b *Browser) startSearch() {
 			}
 
 			// Store the mapping for later use in navigation
-			b.displayToMatchIndex = displayToMatchIndex
+			b.currentTab().displayToMatchIndex = displayToMatchIndex
 		} else {
 			resultsList.AddItem("No matches found", "", 0, nil)
 		}
 
 		// If we're returning from a search result selection, highlight all matches
-		if b.returningFromSearchResult && text != "" {
-			highlightedText := b.highlightSearchTerm(b.originalContent, text, true)
-			b.textView.SetText(highlightedText)
+		if b.currentTab().returningFromSearchResult && text != "" {
+			highlightedText := b.highlightSearchTerm(b.currentTab().originalContent, text, true)
+			b.currentTab().textView.SetText(highlightedText)
 		}
 	})
 
@@ -158,28 +153,23 @@ func (b *Browser) startSearch() {
 		case tcell.KeyEnter:
 			// Get the selected item and navigate to it in the content
 			displayIndex := resultsList.GetCurrentItem()
-			if internalIdx, exists := b.displayToMatchIndex[displayIndex]; exists && internalIdx < len(b.searchMatches) {
+			if internalIdx, exists := b.currentTab().displayToMatchIndex[displayIndex]; exists && internalIdx < len(b.currentTab().searchMatches) {
 				// Set flag to indicate we're returning from a search result selection
-				b.returningFromSearchResult = true
+				b.currentTab().returningFromSearchResult = true
 
 				// Store the selected match to highlight in the main content
-				selectedMatch := b.searchMatches[internalIdx]
+				selectedMatch := b.currentTab().searchMatches[internalIdx]
 
 				// Create highlighted text where the specific selected match has a different highlight
-				highlightedText := b.highlightSelectedMatch(b.originalContent, b.searchTerm, selectedMatch)
-				b.textView.SetText(highlightedText)
+				highlightedText := b.highlightSelectedMatch(b.currentTab().originalContent, b.currentTab().searchTerm, selectedMatch)
+				b.currentTab().textView.SetText(highlightedText)
 
 				// Scroll to the position of the selected match
 				b.scrollToMatch(selectedMatch)
 
 				// Return to main view after navigating
-				flex := tview.NewFlex().
-					SetDirection(tview.FlexRow).
-					AddItem(b.textView, 0, 1, false).  // Main content area - takes remaining space
-					AddItem(b.urlInput, 3, 0, false)   // URL input at the bottom - fixed height of 3
-
-				b.app.SetRoot(flex, true)
-				b.app.SetFocus(b.textView)
+				b.app.SetRoot(b.mainFlex(), true)
+				b.app.SetFocus(b.currentTab().textView)
 			}
 			return nil
 		}
@@ -188,7 +178,7 @@ func (b *Browser) startSearch() {
 	})
 
 	// Reset the flag when starting search
-	b.returningFromSearchResult = false
+	b.currentTab().returningFromSearchResult = false
 
 	// Set focus to the input field when starting search
 	b.app.SetRoot(layout, true)
@@ -197,30 +187,66 @@ func (b *Browser) startSearch() {
 
 // restoreFromSearch restores the main content view after search is dismissed.
 func (b *Browser) restoreFromSearch() {
-	if !b.returningFromSearchResult && b.searchTerm == "" {
-		b.textView.SetText(b.originalContent)
-	} else if b.returningFromSearchResult && b.searchTerm != "" {
-		highlightedText := b.highlightSearchTerm(b.originalContent, b.searchTerm, true)
-		b.textView.SetText(highlightedText)
+	if !b.currentTab().returningFromSearchResult && b.currentTab().searchTerm == "" {
+		b.currentTab().textView.SetText(b.currentTab().originalContent)
+	} else if b.currentTab().returningFromSearchResult && b.currentTab().searchTerm != "" {
+		highlightedText := b.highlightSearchTerm(b.currentTab().originalContent, b.currentTab().searchTerm, true)
+		b.currentTab().textView.SetText(highlightedText)
 	}
-	b.returningFromSearchResult = false
+	b.currentTab().returningFromSearchResult = false
 
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(b.textView, 0, 1, false).
-		AddItem(b.urlInput, 3, 0, false)
-	b.app.SetRoot(flex, true)
-	b.app.SetFocus(b.textView)
+	b.app.SetRoot(b.mainFlex(), true)
+	b.app.SetFocus(b.currentTab().textView)
+}
+
+// navigateSearchMatch moves to the next or previous search match
+func (b *Browser) navigateSearchMatch(direction int) {
+	tab := b.currentTab()
+	if tab.searchTerm == "" || len(tab.searchMatches) == 0 {
+		return
+	}
+
+	currentIdx := -1
+	for i, match := range tab.searchMatches {
+		if match.CharStart == tab.currentMatchStart && match.CharEnd == tab.currentMatchEnd {
+			currentIdx = i
+			break
+		}
+	}
+
+	if currentIdx == -1 {
+		if direction > 0 {
+			currentIdx = 0
+		} else {
+			currentIdx = len(tab.searchMatches) - 1
+		}
+	} else {
+		currentIdx += direction
+		if currentIdx < 0 {
+			currentIdx = len(tab.searchMatches) - 1
+		} else if currentIdx >= len(tab.searchMatches) {
+			currentIdx = 0
+		}
+	}
+
+	selectedMatch := tab.searchMatches[currentIdx]
+	tab.currentMatchStart = selectedMatch.CharStart
+	tab.currentMatchEnd = selectedMatch.CharEnd
+
+	highlightedText := b.highlightSelectedMatch(tab.originalContent, tab.searchTerm, selectedMatch)
+	tab.textView.SetText(highlightedText)
+	b.scrollToMatch(selectedMatch)
 }
 
 // updateTextForSelectedSearchMatch highlights the currently selected search match
 // in the results list and scrolls to it. Used by both j/k key handlers.
 func (b *Browser) updateTextForSelectedSearchMatch(resultsList *tview.List) {
+	tab := b.currentTab()
 	displayIndex := resultsList.GetCurrentItem()
-	if internalIdx, exists := b.displayToMatchIndex[displayIndex]; exists && internalIdx < len(b.searchMatches) {
-		selectedMatch := b.searchMatches[internalIdx]
-		highlightedText := b.highlightSelectedMatch(b.originalContent, b.searchTerm, selectedMatch)
-		b.textView.SetText(highlightedText)
+	if internalIdx, exists := tab.displayToMatchIndex[displayIndex]; exists && internalIdx < len(tab.searchMatches) {
+		selectedMatch := tab.searchMatches[internalIdx]
+		highlightedText := b.highlightSelectedMatch(tab.originalContent, tab.searchTerm, selectedMatch)
+		tab.textView.SetText(highlightedText)
 		b.scrollToMatch(selectedMatch)
 	}
 }
@@ -232,20 +258,21 @@ func (b *Browser) performSearch(term string, caseSensitive bool) {
 
 // performSearchWithMatches performs the text search and returns the match count and matches
 func (b *Browser) performSearchWithMatches(term string, caseSensitive bool) (int, []string) {
-	text := b.originalContent
+	tab := b.currentTab()
+	text := tab.originalContent
 
 	if term == "" {
-		b.textView.SetText(text)
-		b.searchTerm = ""
-		b.textView.ScrollToBeginning()
+		tab.textView.SetText(text)
+		tab.searchTerm = ""
+		tab.textView.ScrollToBeginning()
 		return 0, []string{}
 	}
 
 	matchCount, matches := b.findSearchMatches(text, term, caseSensitive)
 	highlightedText := b.highlightSearchTerm(text, term, caseSensitive)
 
-	b.textView.SetText(highlightedText)
-	b.textView.ScrollToBeginning()
+	tab.textView.SetText(highlightedText)
+	tab.textView.ScrollToBeginning()
 
 	return matchCount, matches
 }

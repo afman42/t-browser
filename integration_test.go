@@ -25,12 +25,12 @@ func TestSessionRoundTrip(t *testing.T) {
 	sessionPath := filepath.Join(dir, "test_session.json")
 
 	b := &Browser{
-		history:      []string{"https://example.com", "https://example.com/page1"},
-		historyIndex: 1,
-		currentURL:   "https://example.com/page1",
-		searchTerm:   "test",
-		forceUA:      "test-agent/1.0",
+		forceUA: "test-agent/1.0",
 	}
+	b.currentTab().history = []string{"https://example.com", "https://example.com/page1"}
+	b.currentTab().historyIndex = 1
+	b.currentTab().currentURL = "https://example.com/page1"
+	b.currentTab().searchTerm = "test"
 
 	if err := b.SaveSession(sessionPath); err != nil {
 		t.Fatalf("SaveSession failed: %v", err)
@@ -51,17 +51,17 @@ func TestSessionRoundTrip(t *testing.T) {
 		t.Fatalf("LoadSession failed: %v", err)
 	}
 
-	if len(b2.history) != 2 {
-		t.Errorf("history length = %d, want 2", len(b2.history))
+	if len(b2.currentTab().history) != 2 {
+		t.Errorf("history length = %d, want 2", len(b2.currentTab().history))
 	}
-	if b2.historyIndex != 1 {
-		t.Errorf("historyIndex = %d, want 1", b2.historyIndex)
+	if b2.currentTab().historyIndex != 1 {
+		t.Errorf("historyIndex = %d, want 1", b2.currentTab().historyIndex)
 	}
-	if b2.currentURL != "https://example.com/page1" {
-		t.Errorf("currentURL = %q, want %q", b2.currentURL, "https://example.com/page1")
+	if b2.currentTab().currentURL != "https://example.com/page1" {
+		t.Errorf("currentURL = %q, want %q", b2.currentTab().currentURL, "https://example.com/page1")
 	}
-	if b2.searchTerm != "test" {
-		t.Errorf("searchTerm = %q, want %q", b2.searchTerm, "test")
+	if b2.currentTab().searchTerm != "test" {
+		t.Errorf("searchTerm = %q, want %q", b2.currentTab().searchTerm, "test")
 	}
 	if b2.forceUA != "test-agent/1.0" {
 		t.Errorf("forceUA = %q, want %q", b2.forceUA, "test-agent/1.0")
@@ -80,10 +80,9 @@ func TestSessionEmptyHistory(t *testing.T) {
 	dir := t.TempDir()
 	sessionPath := filepath.Join(dir, "empty_session.json")
 
-	b := &Browser{
-		history:      []string{},
-		historyIndex: -1,
-	}
+	b := &Browser{}
+	b.currentTab().history = []string{}
+	b.currentTab().historyIndex = -1
 
 	if err := b.SaveSession(sessionPath); err != nil {
 		t.Fatalf("SaveSession failed: %v", err)
@@ -94,36 +93,34 @@ func TestSessionEmptyHistory(t *testing.T) {
 		t.Fatalf("LoadSession failed: %v", err)
 	}
 
-	if len(b2.history) != 0 {
-		t.Errorf("history length = %d, want 0", len(b2.history))
+	if len(b2.currentTab().history) != 0 {
+		t.Errorf("history length = %d, want 0", len(b2.currentTab().history))
 	}
-	if b2.historyIndex != -1 {
-		t.Errorf("historyIndex = %d, want -1", b2.historyIndex)
+	if b2.currentTab().historyIndex != -1 {
+		t.Errorf("historyIndex = %d, want -1", b2.currentTab().historyIndex)
 	}
 }
 
 // --- Navigation integration tests ---
 
 func TestGoBackNoHistory(t *testing.T) {
-	b := &Browser{
-		history:      []string{},
-		historyIndex: -1,
-	}
+	b := &Browser{}
+	b.currentTab().history = []string{}
+	b.currentTab().historyIndex = -1
 	// Should not panic or crash
 	b.GoBack()
-	if b.historyIndex != -1 {
-		t.Errorf("historyIndex = %d, want -1", b.historyIndex)
+	if b.currentTab().historyIndex != -1 {
+		t.Errorf("historyIndex = %d, want -1", b.currentTab().historyIndex)
 	}
 }
 
 func TestGoForwardNoHistory(t *testing.T) {
-	b := &Browser{
-		history:      []string{},
-		historyIndex: -1,
-	}
+	b := &Browser{}
+	b.currentTab().history = []string{}
+	b.currentTab().historyIndex = -1
 	b.GoForward()
-	if b.historyIndex != -1 {
-		t.Errorf("historyIndex = %d, want -1", b.historyIndex)
+	if b.currentTab().historyIndex != -1 {
+		t.Errorf("historyIndex = %d, want -1", b.currentTab().historyIndex)
 	}
 }
 
@@ -292,8 +289,8 @@ func TestCurrentPosAtLineStartIntegration(t *testing.T) {
 		want int
 	}{
 		{0, 0},
-		{1, 4},  // len("abc") + 1
-		{2, 9},  // len("abc\ndefg") + 1
+		{1, 4}, // len("abc") + 1
+		{2, 9}, // len("abc\ndefg") + 1
 	}
 	for _, tc := range tests {
 		got := currentPosAtLineStart(text, tc.line)
@@ -303,16 +300,13 @@ func TestCurrentPosAtLineStartIntegration(t *testing.T) {
 	}
 }
 
-
-
 // --- Session save error path ---
 
 func TestSessionSaveBadPath(t *testing.T) {
-	b := &Browser{
-		history:      []string{"https://example.com"},
-		historyIndex: 0,
-		currentURL:   "https://example.com",
-	}
+	b := &Browser{}
+	b.currentTab().history = []string{"https://example.com"}
+	b.currentTab().historyIndex = 0
+	b.currentTab().currentURL = "https://example.com"
 	// Saving to a path in a nonexistent directory should fail
 	err := b.SaveSession("/nonexistent_parent_dir/session.json")
 	if err == nil {
@@ -336,10 +330,10 @@ func TestCleanExcessiveWhitespaceEdgeCases(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"\n\n\n\n", ""},                       // all empty lines become empty
-		{"a\n\n\n\n\nb", "a\n\nb"},           // many middle newlines
-		{"a\nb\n\n", "a\nb\n"},               // trailing newlines
-		{"singleline", "singleline"},            // no newlines
+		{"\n\n\n\n", ""},             // all empty lines become empty
+		{"a\n\n\n\n\nb", "a\n\nb"},   // many middle newlines
+		{"a\nb\n\n", "a\nb\n"},       // trailing newlines
+		{"singleline", "singleline"}, // no newlines
 		{"\nfirst\n\nsecond\n\n\nthird\n", "\nfirst\n\nsecond\n\nthird\n"},
 	}
 	for _, tc := range tests {

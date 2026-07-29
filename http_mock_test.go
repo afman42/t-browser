@@ -227,12 +227,12 @@ func TestFetchPageCookieRoundTrip(t *testing.T) {
 	header.Add("Set-Cookie", "a=1; Path=/")
 	header.Add("Set-Cookie", "b=2; Path=/")
 	resp := &http.Response{
-		StatusCode: 200,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     header,
-		Body:       io.NopCloser(bytes.NewReader(body("ok"))),
+		StatusCode:    200,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        header,
+		Body:          io.NopCloser(bytes.NewReader(body("ok"))),
 		ContentLength: 2,
 	}
 

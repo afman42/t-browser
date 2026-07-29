@@ -21,10 +21,10 @@ func (b *Browser) SaveSession(filename string) error {
 	defer b.mu.Unlock()
 
 	session := &Session{
-		History:      b.history,
-		HistoryIndex: b.historyIndex,
-		CurrentURL:   b.currentURL,
-		SearchTerm:   b.searchTerm,
+		History:      b.currentTab().history,
+		HistoryIndex: b.currentTab().historyIndex,
+		CurrentURL:   b.currentTab().currentURL,
+		SearchTerm:   b.currentTab().searchTerm,
 		ForceUA:      b.forceUA,
 	}
 
@@ -52,10 +52,10 @@ func (b *Browser) LoadSession(filename string) error {
 		return err
 	}
 
-	b.history = session.History
-	b.historyIndex = session.HistoryIndex
-	b.currentURL = session.CurrentURL
-	b.searchTerm = session.SearchTerm
+	b.currentTab().history = session.History
+	b.currentTab().historyIndex = session.HistoryIndex
+	b.currentTab().currentURL = session.CurrentURL
+	b.currentTab().searchTerm = session.SearchTerm
 	b.forceUA = session.ForceUA
 
 	return nil
@@ -66,12 +66,12 @@ func (b *Browser) LoadSession(filename string) error {
 // block on I/O and must not be held during that call.
 func (b *Browser) GoBack() {
 	b.mu.Lock()
-	if b.historyIndex <= 0 {
+	if b.currentTab().historyIndex <= 0 {
 		b.mu.Unlock()
 		return
 	}
-	b.historyIndex--
-	url := b.history[b.historyIndex]
+	b.currentTab().historyIndex--
+	url := b.currentTab().history[b.currentTab().historyIndex]
 	b.mu.Unlock()
 	b.NavigateTo(url)
 }
@@ -81,12 +81,12 @@ func (b *Browser) GoBack() {
 // block on I/O and must not be held during that call.
 func (b *Browser) GoForward() {
 	b.mu.Lock()
-	if b.historyIndex >= len(b.history)-1 {
+	if b.currentTab().historyIndex >= len(b.currentTab().history)-1 {
 		b.mu.Unlock()
 		return
 	}
-	b.historyIndex++
-	url := b.history[b.historyIndex]
+	b.currentTab().historyIndex++
+	url := b.currentTab().history[b.currentTab().historyIndex]
 	b.mu.Unlock()
 	b.NavigateTo(url)
 }

@@ -1,7 +1,5 @@
 package main
 
-
-
 // updateSettingValue updates a setting value temporarily
 func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 	switch settingID {
@@ -44,6 +42,10 @@ func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 	case "word_wrap":
 		if boolVal, ok := value.(bool); ok {
 			b.config.WordWrap = boolVal
+		}
+	case "search_engine":
+		if strVal, ok := value.(string); ok {
+			b.config.SearchEngine = strVal
 		}
 	case "enable_cookies":
 		if boolVal, ok := value.(bool); ok {
@@ -147,6 +149,7 @@ func (b *Browser) getSettingsForCategory(categoryID string) []Setting {
 			{ID: "theme", Name: "Theme", Description: "Color theme for the interface", Value: b.config.Theme, Type: "string"},
 			{ID: "show_images", Name: "Show Images", Description: "Display images in terminal", Value: b.config.ShowImages, Type: "bool"},
 			{ID: "word_wrap", Name: "Word Wrap", Description: "Enable text word wrapping", Value: b.config.WordWrap, Type: "bool"},
+			{ID: "search_engine", Name: "Search Engine", Description: "URL prefix for web search (e.g. https://duckduckgo.com/html?q=)", Value: b.config.SearchEngine, Type: "string"},
 		}
 	case "privacy":
 		return []Setting{
@@ -164,4 +167,3 @@ func (b *Browser) getSettingsForCategory(categoryID string) []Setting {
 		return []Setting{}
 	}
 }
-

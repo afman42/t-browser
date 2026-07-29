@@ -62,8 +62,8 @@ func TestGetSettingsForCategoryUI(t *testing.T) {
 	b := &Browser{config: &cfg}
 
 	settings := b.getSettingsForCategory("ui")
-	if len(settings) != 3 {
-		t.Fatalf("expected 3 UI settings, got %d", len(settings))
+	if len(settings) != 4 {
+		t.Fatalf("expected 4 UI settings, got %d", len(settings))
 	}
 
 	if settings[0].Value != "light" {
@@ -75,12 +75,15 @@ func TestGetSettingsForCategoryUI(t *testing.T) {
 	if settings[2].Value != false {
 		t.Errorf("expected word_wrap false, got %v", settings[2].Value)
 	}
+	if settings[3].ID != "search_engine" {
+		t.Errorf("expected search_engine setting, got %s", settings[3].ID)
+	}
 }
 
 func TestGetSettingsForCategoryContent(t *testing.T) {
 	cfg := GetDefaultConfig()
-	cfg.MaxPageSize = 10 * 1024 * 1024  // 10 MB
-	cfg.MaxImageSize = 2 * 1024 * 1024  // 2 MB
+	cfg.MaxPageSize = 10 * 1024 * 1024 // 10 MB
+	cfg.MaxImageSize = 2 * 1024 * 1024 // 2 MB
 	cfg.EnableImages = true
 	b := &Browser{config: &cfg}
 

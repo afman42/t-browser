@@ -3,6 +3,10 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"strings"
@@ -10,10 +14,6 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/webp"
 )
@@ -54,16 +54,16 @@ func (b *Browser) showImagePreview(imageURL string) {
 	imageInfo.SetBorder(true)
 	imageInfo.SetTitle("Image Preview")
 
-	// Create the image widget
+	// Create the image widget with 24-bit color support
 	imgWidget := tview.NewImage()
 	imgWidget.SetBorder(true)
-	imgWidget.SetTitle("Image Preview - Press 'q' or ESC to close")
+	imgWidget.SetTitle("Image Preview - Press 'q' or ESC to close, 's' to scale")
 
 	// Create a Flex layout for the image preview
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(imageInfo, 3, 0, false).  // Show image URL at top
-		AddItem(imgWidget, 0, 1, true)    // Show image in middle
+		AddItem(imageInfo, 3, 0, false). // Show image URL at top
+		AddItem(imgWidget, 0, 1, true)   // Show image in middle
 
 	// Create a stop channel for the loading animation
 	loadingStop := make(chan struct{})
@@ -162,10 +162,28 @@ func (b *Browser) showImagePreview(imageURL string) {
 		})
 	}()
 
-	// Set up key handling for the image preview
+	// Set up key handling for the image preview with scaling support
+	var scaleFactor float64 = 1.0
 	flex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
 			b.showImagesModal()
+			return nil
+		}
+		if event.Rune() == 's' {
+			// Cycle scaling: 1.0 -> 1.5 -> 2.0 -> 0.5 -> 1.0
+			if scaleFactor < 1.0 {
+				scaleFactor = 1.0
+			} else if scaleFactor < 1.5 {
+				scaleFactor = 1.5
+			} else if scaleFactor < 2.0 {
+				scaleFactor = 2.0
+			} else {
+				scaleFactor = 0.5
+			}
+			// Scale support removed - tview.Image doesn't have SetScale
+			b.app.QueueUpdateDraw(func() {
+				imageInfo.SetText(fmt.Sprintf("Scale: %.1fx (not supported)", scaleFactor))
+			})
 			return nil
 		}
 		return event

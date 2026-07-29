@@ -12,6 +12,7 @@ import (
 	_ "image/png"
 
 	"github.com/fatih/color"
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/webp"
@@ -36,15 +37,15 @@ func NewBrowser() *Browser {
 	client := NewHTTPClient(&config)
 
 	browser := &Browser{
-		app:                       tview.NewApplication(),
-		history:                   make([]string, 0),
-		historyIndex:              -1,
-		client:                    client,
-		forceUA:                   config.UserAgent,
-		loadingStop:               make(chan struct{}),
-		returningFromSearchResult: false,
-		config:                    &config,
+		app:         tview.NewApplication(),
+		client:      client,
+		forceUA:     config.UserAgent,
+		loadingStop: make(chan struct{}),
+		config:      &config,
+		activeTab:   0,
 	}
+	// Create the initial tab
+	browser.tabs = []*Tab{newTab()}
 
 	// Handle proxy configuration - prioritize config file over environment variable
 	if config.Proxy != "" {
@@ -155,6 +156,22 @@ func (b *Browser) GetCookiesForDomain(domain string) []*Cookie {
 	return cookies
 }
 
+// getHistoryCompletions returns URL completions from history
+func (b *Browser) getHistoryCompletions(prefix string, limit int) []string {
+	var matches []string
+	seen := make(map[string]bool)
+
+	// Search backwards through history for most recent matches
+	for i := len(b.currentTab().history) - 1; i >= 0 && len(matches) < limit; i-- {
+		url := b.currentTab().history[i]
+		if strings.HasPrefix(url, prefix) && !seen[url] {
+			matches = append(matches, url)
+			seen[url] = true
+		}
+	}
+	return matches
+}
+
 // GetAllCookies returns all stored cookies
 func (b *Browser) GetAllCookies() []*Cookie {
 	var cookies []*Cookie
@@ -227,27 +244,25 @@ func (b *Browser) Run() error {
 	// Create UI components
 	b.createUI()
 
-	// Set initial URL if provided as argument and no current URL is set from session
-	if b.currentURL == "" {
-		if len(os.Args) > 1 {
-			initialURL := os.Args[1]
-			if !strings.HasPrefix(initialURL, "http://") && !strings.HasPrefix(initialURL, "https://") {
-				initialURL = "https://" + initialURL
-			}
-			b.NavigateTo(initialURL)
-		} else {
-			b.NavigateTo("https://example.com")
-		}
-	} else {
-		// Navigate to the saved current URL from the session
-		b.NavigateTo(b.currentURL)
-	}
-
 	// Create a flex layout to hold both content and input
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(b.textView, 0, 1, false). // Main content area - takes remaining space
-		AddItem(b.urlInput, 3, 0, false)  // URL input at the bottom - fixed height of 3
+	// Create status bar
+	b.statusBar = tview.NewTextView()
+	b.statusBar.SetDynamicColors(true)
+	b.statusBar.SetTextAlign(tview.AlignLeft)
+	b.statusBar.SetBorder(false)
+	b.statusBar.SetBackgroundColor(tcell.ColorDefault)
+	b.statusBar.SetTextColor(tcell.ColorWhite)
+
+	// Create tab bar
+	b.tabBar = tview.NewTextView()
+	b.tabBar.SetDynamicColors(true)
+	b.tabBar.SetTextAlign(tview.AlignLeft)
+	b.tabBar.SetBorder(false)
+	b.tabBar.SetBackgroundColor(tcell.ColorDarkCyan)
+	b.tabBar.SetTextColor(tcell.ColorWhite)
+	b.updateTabBar()
+
+	flex := b.mainFlex()
 
 	// Set up graceful shutdown on SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)
@@ -260,7 +275,26 @@ func (b *Browser) Run() error {
 
 	// Start the application with the flex layout and ensure content view has focus
 	b.app.SetRoot(flex, true)
-	b.app.SetFocus(b.textView)
+	b.app.SetFocus(b.currentTab().textView)
+
+	// Navigate to the initial URL AFTER the UI is fully set up so that
+	// showLoadingIndicator can write to the status bar immediately.
+	go func() {
+		if b.currentTab().currentURL == "" {
+			if len(os.Args) > 1 {
+				initialURL := os.Args[1]
+				if !strings.HasPrefix(initialURL, "http://") && !strings.HasPrefix(initialURL, "https://") {
+					initialURL = "https://" + initialURL
+				}
+				b.NavigateTo(initialURL)
+			} else {
+				b.NavigateTo("https://example.com")
+			}
+		} else {
+			b.NavigateTo(b.currentTab().currentURL)
+		}
+	}()
+
 	if err := b.app.EnableMouse(true).Run(); err != nil {
 		return err
 	}
@@ -283,4 +317,131 @@ func (b *Browser) Run() error {
 	return nil
 }
 
+func (b *Browser) mainFlex() *tview.Flex {
+	return tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(b.tabBar, 1, 0, false).
+		AddItem(b.currentTab().textView, 0, 1, false).
+		AddItem(b.statusBar, 1, 0, false).
+		AddItem(b.urlInput, 3, 0, false)
+}
 
+func (b *Browser) updateTabBar() {
+	if b.tabBar == nil {
+		return
+	}
+	var sb strings.Builder
+	for i, tab := range b.tabs {
+		label := tab.currentURL
+		if label == "" {
+			label = "New Tab"
+		} else {
+			// Shorten URL for display
+			if len(label) > 30 {
+				label = label[:30] + "..."
+			}
+		}
+		if i == b.activeTab {
+			sb.WriteString(fmt.Sprintf(" [::b][ %d: %s ][::-] ", i+1, label))
+		} else {
+			sb.WriteString(fmt.Sprintf(" [ %d: %s ] ", i+1, label))
+		}
+	}
+	if len(b.tabs) == 0 {
+		sb.WriteString(" No tabs")
+	}
+	b.tabBar.SetText(sb.String())
+}
+
+func (b *Browser) newTab() {
+	tab := newTab()
+	b.setupKeyBindings(tab.textView)
+	b.tabs = append(b.tabs, tab)
+	b.activeTab = len(b.tabs) - 1
+	b.ApplyTheme()
+	if b.app != nil {
+		b.app.QueueUpdateDraw(func() {
+			b.app.SetRoot(b.mainFlex(), true)
+			b.app.SetFocus(b.urlInput)
+			b.updateTabBar()
+		})
+	}
+}
+
+func (b *Browser) closeTab() {
+	if len(b.tabs) <= 1 {
+		if b.app != nil {
+			b.app.Stop()
+		}
+		return
+	}
+	old := b.tabs[b.activeTab]
+	if old.metaRefreshCancel != nil {
+		old.metaRefreshCancel()
+	}
+	b.tabs = append(b.tabs[:b.activeTab], b.tabs[b.activeTab+1:]...)
+	if b.activeTab >= len(b.tabs) {
+		b.activeTab = len(b.tabs) - 1
+	}
+	b.ApplyTheme()
+	if b.app != nil {
+		b.app.QueueUpdateDraw(func() {
+			b.app.SetRoot(b.mainFlex(), true)
+			b.app.SetFocus(b.currentTab().textView)
+			b.updateTabBar()
+		})
+	}
+}
+
+func (b *Browser) switchTab(index int) {
+	if index < 0 || index >= len(b.tabs) {
+		return
+	}
+	b.activeTab = index
+	b.ApplyTheme()
+	if b.app != nil {
+		b.app.QueueUpdateDraw(func() {
+			b.app.SetRoot(b.mainFlex(), true)
+			b.app.SetFocus(b.currentTab().textView)
+			b.updateStatusBar()
+			b.updateTabBar()
+		})
+	}
+}
+
+func (b *Browser) nextTab() {
+	b.switchTab((b.activeTab + 1) % len(b.tabs))
+}
+
+func (b *Browser) prevTab() {
+	idx := b.activeTab - 1
+	if idx < 0 {
+		idx = len(b.tabs) - 1
+	}
+	b.switchTab(idx)
+}
+
+func (b *Browser) pinCurrentSite() {
+	currentURL := b.currentTab().currentURL
+	if currentURL == "" {
+		return
+	}
+	fingerprint, err := PinCurrentSiteKey(currentURL)
+	if err != nil {
+		return
+	}
+	if b.config == nil {
+		return
+	}
+
+	for _, existing := range b.config.PinnedKeys {
+		if existing == fingerprint {
+			return
+		}
+	}
+	b.config.PinnedKeys = append(b.config.PinnedKeys, fingerprint)
+	b.config.EnablePinning = true
+	configDir := GetConfigDir()
+	if err := b.config.WriteToFile(configDir); err != nil {
+	}
+}

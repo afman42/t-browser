@@ -45,12 +45,12 @@ func TestApplyTviewColor(t *testing.T) {
 
 func TestApplyTviewStyle(t *testing.T) {
 	tests := []struct {
-		name    string
-		text    string
-		fg      string
-		bg      string
-		attrs   string
-		want    string
+		name  string
+		text  string
+		fg    string
+		bg    string
+		attrs string
+		want  string
 	}{
 		{"fg only", "text", "red", "", "", "[red]text[-]"},
 		{"fg and bg", "text", "red", "blue", "", "[red:blue]text[-]"},

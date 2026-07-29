@@ -43,8 +43,8 @@ func TestSanitizeHTMLRemovesIframe(t *testing.T) {
 func TestSanitizeHTMLRemovesObjectAndEmbed(t *testing.T) {
 	tests := []string{
 		`<object data="evil.swf"></object>`,
-		`<embed src="evil.swf">`,               // HTML5 void element (no />)
-		`<embed src="evil.swf"/>`,               // XHTML self-closing
+		`<embed src="evil.swf">`,  // HTML5 void element (no />)
+		`<embed src="evil.swf"/>`, // XHTML self-closing
 	}
 	for _, input := range tests {
 		got := sanitizeHTML(input)

@@ -65,9 +65,9 @@ func TestCurrentPosAtLineStart(t *testing.T) {
 		lineIndex int
 		want      int
 	}{
-		{0, 0},    // start of first line
-		{1, 6},    // start of second line (after "line0\n")
-		{2, 12},   // start of third line (after "line0\nline1\n")
+		{0, 0},  // start of first line
+		{1, 6},  // start of second line (after "line0\n")
+		{2, 12}, // start of third line (after "line0\nline1\n")
 	}
 
 	for _, tc := range tests {

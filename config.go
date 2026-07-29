@@ -15,19 +15,19 @@ import (
 // Config represents the application configuration
 type Config struct {
 	// Browser settings
-	UserAgent    string `mapstructure:"user_agent"`
+	UserAgent   string `mapstructure:"user_agent"`
 	WindowSizeX int    `mapstructure:"window_size_x"`
 	WindowSizeY int    `mapstructure:"window_size_y"`
-	
+
 	// Cookie settings
-	CookieFile string `mapstructure:"cookie_file"`
-	CookieAutoSave bool `mapstructure:"cookie_auto_save"`
-	
+	CookieFile     string `mapstructure:"cookie_file"`
+	CookieAutoSave bool   `mapstructure:"cookie_auto_save"`
+
 	// Session settings
-	SessionFile       string `mapstructure:"session_file"`
-	SessionAutoSave   bool   `mapstructure:"session_auto_save"`
-	SessionHistorySize int   `mapstructure:"session_history_size"`
-	
+	SessionFile        string `mapstructure:"session_file"`
+	SessionAutoSave    bool   `mapstructure:"session_auto_save"`
+	SessionHistorySize int    `mapstructure:"session_history_size"`
+
 	// Network settings
 	Proxy          string   `mapstructure:"proxy"`
 	RequestTimeout int      `mapstructure:"request_timeout"`
@@ -35,53 +35,57 @@ type Config struct {
 	EnablePinning  bool     `mapstructure:"enable_pinning"`
 	PinnedKeys     []string `mapstructure:"pinned_keys"`
 	EnableHSTS     bool     `mapstructure:"enable_hsts"`
-	
+
 	// Content settings
-	MaxPageSize         int64 `mapstructure:"max_page_size"`
-	MaxImageSize        int64 `mapstructure:"max_image_size"`
-	EnableImages        bool  `mapstructure:"enable_images"`
-	EnableScripts       bool  `mapstructure:"enable_scripts"` // For info, won't actually execute
-	EnableCookies       bool  `mapstructure:"enable_cookies"`
-	EnableContentSecurity bool `mapstructure:"enable_content_security"`
-	BlockExternalResources bool `mapstructure:"block_external_resources"`
-	
+	MaxPageSize            int64 `mapstructure:"max_page_size"`
+	MaxImageSize           int64 `mapstructure:"max_image_size"`
+	EnableImages           bool  `mapstructure:"enable_images"`
+	EnableScripts          bool  `mapstructure:"enable_scripts"` // For info, won't actually execute
+	EnableCookies          bool  `mapstructure:"enable_cookies"`
+	EnableContentSecurity  bool  `mapstructure:"enable_content_security"`
+	BlockExternalResources bool  `mapstructure:"block_external_resources"`
+
 	// Cookie security
-	EnforceSameSite     bool  `mapstructure:"enforce_same_site"`
-	
+	EnforceSameSite bool `mapstructure:"enforce_same_site"`
+
 	// UI settings
 	Theme      string `mapstructure:"theme"`
 	ShowImages bool   `mapstructure:"show_images"`
 	WordWrap   bool   `mapstructure:"word_wrap"`
+
+	// Search settings
+	SearchEngine string `mapstructure:"search_engine"`
 }
 
 // GetDefaultConfig returns the default configuration
 func GetDefaultConfig() Config {
 	return Config{
-		UserAgent:          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-		WindowSizeX:        80,
-		WindowSizeY:        24,
-		CookieFile:         "cookies.json",
-		CookieAutoSave:     true,
-		SessionFile:        "session.json",
-		SessionAutoSave:    true,
-		SessionHistorySize: 50,
-		Proxy:              "",
-		RequestTimeout:     30,
-		MaxRedirects:       10,
-		EnablePinning:      false,
-		PinnedKeys:         nil,
-		EnableHSTS:         true,
-		MaxPageSize:        50 * 1024 * 1024, // 50MB
-		MaxImageSize:       5 * 1024 * 1024,  // 5MB
-		EnableImages:       true,
-		EnableScripts:      false,
-		EnableCookies:      true,
-		EnableContentSecurity: true,
+		UserAgent:              "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		WindowSizeX:            80,
+		WindowSizeY:            24,
+		CookieFile:             "cookies.json",
+		CookieAutoSave:         true,
+		SessionFile:            "session.json",
+		SessionAutoSave:        true,
+		SessionHistorySize:     50,
+		Proxy:                  "",
+		RequestTimeout:         30,
+		MaxRedirects:           10,
+		EnablePinning:          false,
+		PinnedKeys:             nil,
+		EnableHSTS:             true,
+		MaxPageSize:            50 * 1024 * 1024, // 50MB
+		MaxImageSize:           5 * 1024 * 1024,  // 5MB
+		EnableImages:           true,
+		EnableScripts:          false,
+		EnableCookies:          true,
+		EnableContentSecurity:  true,
 		BlockExternalResources: true,
-		EnforceSameSite:    true,
-		Theme:              "dark",
-		ShowImages:         true,
-		WordWrap:           true,
+		EnforceSameSite:        true,
+		Theme:                  "dark",
+		ShowImages:             true,
+		WordWrap:               true,
+		SearchEngine:           "https://duckduckgo.com/html?q=",
 	}
 }
 
@@ -105,7 +109,7 @@ func applyConfigToViper(cfg Config) {
 // GetConfigDir returns the appropriate config directory for the OS
 func GetConfigDir() string {
 	var configDir string
-	
+
 	switch runtime.GOOS {
 	case "windows":
 		configDir = filepath.Join(getWindowsConfigPath(), "t-browser")
@@ -114,7 +118,7 @@ func GetConfigDir() string {
 	default: // Linux and other Unix-like systems
 		configDir = GetLinuxConfigPath()
 	}
-	
+
 	return configDir
 }
 
@@ -193,6 +197,7 @@ func InitializeConfig() error {
 	viper.SetDefault("theme", GetDefaultConfig().Theme)
 	viper.SetDefault("show_images", GetDefaultConfig().ShowImages)
 	viper.SetDefault("word_wrap", GetDefaultConfig().WordWrap)
+	viper.SetDefault("search_engine", GetDefaultConfig().SearchEngine)
 
 	// Try to read the config file
 	err := viper.ReadInConfig()

@@ -8,10 +8,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// ---------------------------------------------------------------------------
-// Content Security — HTML sanitization & external resource blocking
-// ---------------------------------------------------------------------------
-
 var (
 	// scriptTag matches entire <script> blocks (including inline).
 	scriptTag = regexp.MustCompile(`(?is)<script[\s>].*?</script>`)
@@ -36,18 +32,34 @@ var (
 	javascriptHref = regexp.MustCompile(`(?i)\s+(?:href|action|formaction)\s*=\s*"(?:javascript|vbscript):[^"]*"|` +
 		`\s+(?:href|action|formaction)\s*=\s*'(?:javascript|vbscript):[^']*'`)
 
-	// javascriptSrc matches src="javascript:..." 
+	// javascriptSrc matches src="javascript:..."
 	javascriptSrc = regexp.MustCompile(`(?i)\s+src\s*=\s*"(?:javascript|vbscript):[^"]*"|` +
 		`\s+src\s*=\s*'(?:javascript|vbscript):[^']*'`)
 )
 
-// sanitizeHTML strips dangerous elements and attributes from HTML content.
-// It removes <script>, <iframe>, <object>, <embed>, <applet> tags,
-// event handler attributes (onclick, onload, etc.), and javascript: URLs.
-func sanitizeHTML(htmlContent string) string {
+type SanitizeReport struct {
+	ScriptsRemoved        int
+	IframesRemoved        int
+	ObjectsRemoved        int
+	AppletsRemoved        int
+	EventHandlersRemoved  int
+	JavascriptURLsRemoved int
+}
+
+func sanitizeHTMLWithReport(htmlContent string) (string, SanitizeReport) {
+	var report SanitizeReport
 	if htmlContent == "" {
-		return htmlContent
+		return htmlContent, report
 	}
+
+	// Count matches before removal for the report.
+	report.ScriptsRemoved = len(scriptTag.FindAllString(htmlContent, -1))
+	report.IframesRemoved = len(iframeTag.FindAllString(htmlContent, -1))
+	report.ObjectsRemoved = len(objectTag.FindAllString(htmlContent, -1))
+	report.AppletsRemoved = len(appletTag.FindAllString(htmlContent, -1))
+	report.EventHandlersRemoved = len(eventHandler.FindAllString(htmlContent, -1))
+	report.JavascriptURLsRemoved = len(javascriptHref.FindAllString(htmlContent, -1)) +
+		len(javascriptSrc.FindAllString(htmlContent, -1))
 
 	// Order matters: strip full elements before attributes to avoid
 	// leaving partial tags behind.
@@ -66,7 +78,15 @@ func sanitizeHTML(htmlContent string) string {
 	// Clean up any empty anchor tags left behind.
 	result = strings.ReplaceAll(result, "<a></a>", "")
 
-	return result
+	return result, report
+}
+
+// sanitizeHTML strips dangerous elements and attributes from HTML content.
+// It removes <script>, <iframe>, <object>, <embed>, <applet> tags,
+// event handler attributes (onclick, onload, etc.), and javascript: URLs.
+func sanitizeHTML(htmlContent string) string {
+	cleaned, _ := sanitizeHTMLWithReport(htmlContent)
+	return cleaned
 }
 
 // blockExternalResources removes or neutralises references to external

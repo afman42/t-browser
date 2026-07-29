@@ -10,22 +10,22 @@ import (
 
 // showLinksModal displays a modal with a list of all links on the page with pagination
 func (b *Browser) showLinksModal() {
-	if len(b.links) == 0 {
+	if len(b.currentTab().links) == 0 {
 		return
 	}
-	
+
 	// Show the first page of links
 	b.showLinksModalPage(0)
 }
 
 // showLinksModalPage displays a specific page of links in the modal
 func (b *Browser) showLinksModalPage(page int) {
-	if len(b.links) == 0 {
+	if len(b.currentTab().links) == 0 {
 		return
 	}
 
 	// Calculate pagination
-	totalItems := len(b.links)
+	totalItems := len(b.currentTab().links)
 	totalPages := (totalItems + ItemsPerPage - 1) / ItemsPerPage // Ceiling division
 	if page < 0 {
 		page = 0
@@ -33,7 +33,7 @@ func (b *Browser) showLinksModalPage(page int) {
 	if page >= totalPages {
 		page = totalPages - 1
 	}
-	
+
 	// Calculate start and end indices for this page
 	startIndex := page * ItemsPerPage
 	endIndex := startIndex + ItemsPerPage
@@ -42,7 +42,7 @@ func (b *Browser) showLinksModalPage(page int) {
 	}
 
 	// Show loading indicator first if there are many links
-	if len(b.links) > 50 { // Only show loading for larger lists
+	if len(b.currentTab().links) > 50 { // Only show loading for larger lists
 		b.showLoadingModal("Loading Links", fmt.Sprintf("[yellow]Loading links page %d of %d...[white]", page+1, totalPages))
 	}
 
@@ -54,7 +54,7 @@ func (b *Browser) showLinksModalPage(page int) {
 
 	// Add links for this page
 	for i := startIndex; i < endIndex; i++ {
-		link := b.links[i]
+		link := b.currentTab().links[i]
 		linkText := link.Text
 		// Don't truncate text when there are many links, just display as is
 		// Check if the link is an image
@@ -79,17 +79,17 @@ func (b *Browser) showLinksModalPage(page int) {
 			return func() {
 				if isImg {
 					// Show image preview instead of navigating
-					b.showImagePreview(b.links[index].URL)
+					b.showImagePreview(b.currentTab().links[index].URL)
 				} else {
 					// Navigate to the selected link
-					b.NavigateTo(b.links[index].URL)
+					b.NavigateTo(b.currentTab().links[index].URL)
 					// Close the modal by returning to main view
 					flex := tview.NewFlex().
 						SetDirection(tview.FlexRow).
-						AddItem(b.textView, 0, 1, false).
+						AddItem(b.currentTab().textView, 0, 1, false).
 						AddItem(b.urlInput, 3, 0, false)
 					b.app.SetRoot(flex, true)
-					b.app.SetFocus(b.textView)
+					b.app.SetFocus(b.currentTab().textView)
 				}
 			}
 		}(i, isImage, hasRealExt))
@@ -103,10 +103,10 @@ func (b *Browser) showLinksModalPage(page int) {
 				b.showLinksModalPage(page - 1)
 			})
 		}
-		
+
 		// Add next page button if not on the last page
-		if page < totalPages - 1 {
-			linkList.AddItem("Next Page", fmt.Sprintf("Go to page %d", page + 2), 'n', func() {
+		if page < totalPages-1 {
+			linkList.AddItem("Next Page", fmt.Sprintf("Go to page %d", page+2), 'n', func() {
 				b.showLinksModalPage(page + 1)
 			})
 		}
@@ -117,21 +117,21 @@ func (b *Browser) showLinksModalPage(page int) {
 		// Close the modal by returning to main view
 		flex := tview.NewFlex().
 			SetDirection(tview.FlexRow).
-			AddItem(b.textView, 0, 1, false).
+			AddItem(b.currentTab().textView, 0, 1, false).
 			AddItem(b.urlInput, 3, 0, false)
 		b.app.SetRoot(flex, true)
-		b.app.SetFocus(b.textView)
+		b.app.SetFocus(b.currentTab().textView)
 	})
 
 	// Add an images option if there are images on the page
-	if len(b.images) > 0 {
-		linkList.AddItem("Show Images", fmt.Sprintf("View all %d images on this page", len(b.images)), 'i', func() {
+	if len(b.currentTab().images) > 0 {
+		linkList.AddItem("Show Images", fmt.Sprintf("View all %d images on this page", len(b.currentTab().images)), 'i', func() {
 			b.showImagesModal()
 		})
 	}
 
 	// Add a go back option if there's history
-	if b.historyIndex > 0 {
+	if b.currentTab().historyIndex > 0 {
 		linkList.AddItem("Go Back", "Return to previous page", 'b', func() {
 			// Go back in history and return to main view
 			b.GoBack()
@@ -149,10 +149,10 @@ func (b *Browser) showLinksModalPage(page int) {
 				// Close the modal by returning to main view
 				flex := tview.NewFlex().
 					SetDirection(tview.FlexRow).
-					AddItem(b.textView, 0, 1, false).
+					AddItem(b.currentTab().textView, 0, 1, false).
 					AddItem(b.urlInput, 3, 0, false)
 				b.app.SetRoot(flex, true)
-				b.app.SetFocus(b.textView)
+				b.app.SetFocus(b.currentTab().textView)
 				return nil
 			} else if event.Rune() == 'n' && totalPages > 1 && page < totalPages-1 {
 				// Go to next page
@@ -173,22 +173,22 @@ func (b *Browser) showLinksModalPage(page int) {
 
 // showImagesModal displays a modal with a list of all images on the page with pagination
 func (b *Browser) showImagesModal() {
-	if len(b.images) == 0 {
+	if len(b.currentTab().images) == 0 {
 		return
 	}
-	
+
 	// Show the first page of images
 	b.showImagesModalPage(0)
 }
 
 // showImagesModalPage displays a specific page of images in the modal
 func (b *Browser) showImagesModalPage(page int) {
-	if len(b.images) == 0 {
+	if len(b.currentTab().images) == 0 {
 		return
 	}
 
 	// Calculate pagination
-	totalItems := len(b.images)
+	totalItems := len(b.currentTab().images)
 	totalPages := (totalItems + ItemsPerPage - 1) / ItemsPerPage // Ceiling division
 	if page < 0 {
 		page = 0
@@ -196,7 +196,7 @@ func (b *Browser) showImagesModalPage(page int) {
 	if page >= totalPages {
 		page = totalPages - 1
 	}
-	
+
 	// Calculate start and end indices for this page
 	startIndex := page * ItemsPerPage
 	endIndex := startIndex + ItemsPerPage
@@ -205,7 +205,7 @@ func (b *Browser) showImagesModalPage(page int) {
 	}
 
 	// Show loading indicator first if there are many images
-	if len(b.images) > 50 { // Only show loading for larger lists
+	if len(b.currentTab().images) > 50 { // Only show loading for larger lists
 		b.showLoadingModal("Loading Images", fmt.Sprintf("[yellow]Loading images page %d of %d...[white]", page+1, totalPages))
 	}
 
@@ -217,8 +217,8 @@ func (b *Browser) showImagesModalPage(page int) {
 
 	// Add images for this page
 	for i := startIndex; i < endIndex; i++ {
-		img := b.images[i]
-		
+		img := b.currentTab().images[i]
+
 		// Create title for the image
 		imgTitle := img.Alt
 		if imgTitle == "" {
@@ -248,7 +248,7 @@ func (b *Browser) showImagesModalPage(page int) {
 		imageList.AddItem(imgTitle, urlToShow, 0, func(index int) func() {
 			return func() {
 				// Show image preview
-				b.showImagePreview(b.images[index].URL)
+				b.showImagePreview(b.currentTab().images[index].URL)
 			}
 		}(i))
 	}
@@ -261,10 +261,10 @@ func (b *Browser) showImagesModalPage(page int) {
 				b.showImagesModalPage(page - 1)
 			})
 		}
-		
+
 		// Add next page button if not on the last page
-		if page < totalPages - 1 {
-			imageList.AddItem("Next Page", fmt.Sprintf("Go to page %d", page + 2), 'n', func() {
+		if page < totalPages-1 {
+			imageList.AddItem("Next Page", fmt.Sprintf("Go to page %d", page+2), 'n', func() {
 				b.showImagesModalPage(page + 1)
 			})
 		}
@@ -275,10 +275,10 @@ func (b *Browser) showImagesModalPage(page int) {
 		// Close the modal by returning to main view
 		flex := tview.NewFlex().
 			SetDirection(tview.FlexRow).
-			AddItem(b.textView, 0, 1, false).
+			AddItem(b.currentTab().textView, 0, 1, false).
 			AddItem(b.urlInput, 3, 0, false)
 		b.app.SetRoot(flex, true)
-		b.app.SetFocus(b.textView)
+		b.app.SetFocus(b.currentTab().textView)
 	})
 
 	// Add a link list option to return to the links modal
@@ -296,10 +296,10 @@ func (b *Browser) showImagesModalPage(page int) {
 				// Close the modal by returning to main view
 				flex := tview.NewFlex().
 					SetDirection(tview.FlexRow).
-					AddItem(b.textView, 0, 1, false).
+					AddItem(b.currentTab().textView, 0, 1, false).
 					AddItem(b.urlInput, 3, 0, false)
 				b.app.SetRoot(flex, true)
-				b.app.SetFocus(b.textView)
+				b.app.SetFocus(b.currentTab().textView)
 				return nil
 			} else if event.Rune() == 'n' && totalPages > 1 && page < totalPages-1 {
 				// Go to next page

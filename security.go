@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -304,4 +305,47 @@ func GetHSTSFilePath(configDir string) string {
 		return filepath.Join(configDir, "hsts_policies.json")
 	}
 	return filepath.Join(hstsDir, "policies.json")
+}
+
+// ---------------------------------------------------------------------------
+// Pin Current Site Key
+// ---------------------------------------------------------------------------
+
+func PinCurrentSiteKey(rawURL string) (string, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("pin: invalid URL: %w", err)
+	}
+
+	host := parsedURL.Hostname()
+	port := parsedURL.Port()
+	if port == "" {
+		port = "443"
+	}
+
+	// Dial a TLS connection to extract the certificate.
+	tlsConf := &tls.Config{
+		InsecureSkipVerify: false,
+		MinVersion:         tls.VersionTLS12,
+		ServerName:         host,
+	}
+	conn, err := tls.Dial("tcp", host+":"+port, tlsConf)
+	if err != nil {
+		return "", fmt.Errorf("pin: TLS dial failed: %w", err)
+	}
+	defer conn.Close()
+
+	state := conn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		return "", fmt.Errorf("pin: no peer certificates")
+	}
+
+	cert := state.PeerCertificates[0]
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("pin: failed to marshal public key: %w", err)
+	}
+
+	hash := sha256.Sum256(pubKeyBytes)
+	return base64.StdEncoding.EncodeToString(hash[:]), nil
 }

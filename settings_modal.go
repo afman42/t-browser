@@ -221,9 +221,9 @@ func (b *Browser) closeSettingsModal() {
 	// Restore the main browser UI
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(b.textView, 0, 1, false).
+		AddItem(b.currentTab().textView, 0, 1, false).
 		AddItem(b.urlInput, 3, 0, false)
 
 	b.app.SetRoot(flex, true)
-	b.app.SetFocus(b.textView)
+	b.app.SetFocus(b.currentTab().textView)
 }

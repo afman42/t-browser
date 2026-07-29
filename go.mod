@@ -4,6 +4,7 @@ go 1.24.3
 
 require (
 	github.com/PuerkitoBio/goquery v1.11.0
+	github.com/andybalholm/brotli v1.2.2
 	github.com/atotto/clipboard v0.1.4
 	github.com/fatih/color v1.18.0
 	github.com/gdamore/tcell/v2 v2.12.0

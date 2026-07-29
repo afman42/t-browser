@@ -72,20 +72,23 @@ func (b *Browser) ensureContentVisibilityForTheme(content string) string {
 
 // ApplyTheme applies the selected theme to the application.
 func (b *Browser) ApplyTheme() {
+	if b.config == nil {
+		return
+	}
 	tview.Styles = themeForName(b.config.Theme)
 
 	// Update textView appearance based on theme
-	if b.textView != nil {
+	if b.currentTab().textView != nil {
 		if b.isLightTheme() {
-			b.textView.SetBackgroundColor(tcell.ColorWhite)
+			b.currentTab().textView.SetBackgroundColor(tcell.ColorWhite)
 		} else {
-			b.textView.SetBackgroundColor(tcell.ColorBlack)
+			b.currentTab().textView.SetBackgroundColor(tcell.ColorBlack)
 		}
 		// Refresh content to make sure it's visible in current theme
-		if b.originalUnprocessedContent != "" {
-			processedContent := b.ensureContentVisibilityForTheme(b.originalUnprocessedContent)
-			b.originalContent = processedContent
-			b.textView.SetText(processedContent)
+		if b.currentTab().originalUnprocessedContent != "" {
+			processedContent := b.ensureContentVisibilityForTheme(b.currentTab().originalUnprocessedContent)
+			b.currentTab().originalContent = processedContent
+			b.currentTab().textView.SetText(processedContent)
 		}
 
 		borderColor := tcell.ColorWhite
@@ -94,8 +97,8 @@ func (b *Browser) ApplyTheme() {
 			borderColor = tcell.ColorBlack
 			titleColor = tcell.ColorBlack
 		}
-		b.textView.SetBorderColor(borderColor)
-		b.textView.SetTitleColor(titleColor)
+		b.currentTab().textView.SetBorderColor(borderColor)
+		b.currentTab().textView.SetTitleColor(titleColor)
 	}
 
 	// Update urlInput appearance based on theme
