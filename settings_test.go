@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -62,8 +63,8 @@ func TestGetSettingsForCategoryUI(t *testing.T) {
 	b := &Browser{config: &cfg}
 
 	settings := b.getSettingsForCategory("ui")
-	if len(settings) != 4 {
-		t.Fatalf("expected 4 UI settings, got %d", len(settings))
+	if len(settings) != 5 {
+		t.Fatalf("expected 5 UI settings, got %d", len(settings))
 	}
 
 	if settings[0].Value != "light" {
@@ -75,8 +76,11 @@ func TestGetSettingsForCategoryUI(t *testing.T) {
 	if settings[2].Value != false {
 		t.Errorf("expected word_wrap false, got %v", settings[2].Value)
 	}
-	if settings[3].ID != "search_engine" {
-		t.Errorf("expected search_engine setting, got %s", settings[3].ID)
+	if settings[3].ID != "items_per_page" {
+		t.Errorf("expected items_per_page setting, got %s", settings[3].ID)
+	}
+	if settings[4].ID != "search_engine" {
+		t.Errorf("expected search_engine setting, got %s", settings[4].ID)
 	}
 }
 
@@ -120,8 +124,8 @@ func TestGetSettingsForCategoryPrivacy(t *testing.T) {
 	b := &Browser{config: &cfg}
 
 	settings := b.getSettingsForCategory("privacy")
-	if len(settings) != 4 {
-		t.Fatalf("expected 4 privacy settings, got %d", len(settings))
+	if len(settings) != 5 {
+		t.Fatalf("expected 5 privacy settings, got %d", len(settings))
 	}
 
 	if settings[0].ID != "enable_cookies" {
@@ -129,6 +133,9 @@ func TestGetSettingsForCategoryPrivacy(t *testing.T) {
 	}
 	if settings[0].Value != false {
 		t.Errorf("expected enable_cookies false, got %v", settings[0].Value)
+	}
+	if settings[3].ID != "strip_tracking_params" {
+		t.Errorf("expected 'strip_tracking_params', got %q", settings[3].ID)
 	}
 }
 
@@ -233,5 +240,71 @@ func TestUpdateSettingValueTypeMismatch(t *testing.T) {
 	b.updateSettingValue("user_agent", 12345)
 	if cfg.UserAgent != original {
 		t.Errorf("expected UserAgent unchanged after type mismatch, got %q", cfg.UserAgent)
+	}
+}
+
+// --- wrapText tests ---
+
+func TestWrapTextShortLineUnchanged(t *testing.T) {
+	in := "short line"
+	if got := wrapText(in, 40); got != in {
+		t.Errorf("wrapText(short, 40) = %q, want %q", got, in)
+	}
+}
+
+func TestWrapTextWrapsLongLine(t *testing.T) {
+	in := "the quick brown fox jumps over the lazy dog"
+	got := wrapText(in, 10)
+	lines := strings.Split(got, "\n")
+	for i, line := range lines {
+		if len(line) > 10 {
+			t.Errorf("line %d is %d chars (max 10): %q", i, len(line), line)
+		}
+	}
+	if len(lines) < 2 {
+		t.Errorf("expected multiple lines, got %d", len(lines))
+	}
+}
+
+func TestWrapTextPreservesAllWords(t *testing.T) {
+	in := "the quick brown fox"
+	got := wrapText(in, 5)
+	// Every word should appear in the output.
+	for _, word := range strings.Fields(in) {
+		if !strings.Contains(got, word) {
+			t.Errorf("word %q missing from wrapped output: %q", word, got)
+		}
+	}
+}
+
+func TestWrapTextEmptyString(t *testing.T) {
+	if got := wrapText("", 10); got != "" {
+		t.Errorf("wrapText(\"\", 10) = %q, want \"\"", got)
+	}
+}
+
+func TestWrapTextZeroWidthReturnsOriginal(t *testing.T) {
+	in := "some text here"
+	if got := wrapText(in, 0); got != in {
+		t.Errorf("wrapText(_, 0) should return original, got %q", got)
+	}
+}
+
+func TestWrapTextSingleLongWord(t *testing.T) {
+	in := "supercalifragilisticexpialidocious"
+	got := wrapText(in, 10)
+	// A single word longer than width stays on one line.
+	if got != in {
+		t.Errorf("single long word should stay on one line, got %q", got)
+	}
+}
+
+func TestSettingsLeftColumnWidth(t *testing.T) {
+	w := settingsLeftColumnWidth()
+	if w <= 0 {
+		t.Errorf("settingsLeftColumnWidth() = %d, want > 0", w)
+	}
+	if w > 30 {
+		t.Errorf("settingsLeftColumnWidth() = %d, should be <= 30 for narrow terminals", w)
 	}
 }

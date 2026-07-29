@@ -7,6 +7,12 @@ import (
 	"github.com/rivo/tview"
 )
 
+// settingsLeftColumnWidth returns the width for the left categories list,
+// shrinking on narrow terminals so the right column has room to breathe.
+func settingsLeftColumnWidth() int {
+	return 24
+}
+
 // showSettingsModal displays the settings page with two-column layout
 func (b *Browser) showSettingsModal() {
 	flex := tview.NewFlex()
@@ -35,7 +41,7 @@ func (b *Browser) showSettingsModal() {
 	rightForm.SetTitle("Settings")
 
 	flex.SetDirection(tview.FlexColumn).
-		AddItem(leftList, 30, 1, true).
+		AddItem(leftList, settingsLeftColumnWidth(), 1, true).
 		AddItem(rightForm, 0, 4, false)
 
 	b.app.SetFocus(leftList)
@@ -63,8 +69,18 @@ func (b *Browser) showSettingsModal() {
 	b.app.SetRoot(flex, true)
 }
 
-// updateRightColumn updates the right column with settings for the selected category
-func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, category SettingCategory) {
+// buildSettingsRightColumn builds the right column for a settings category:
+// a word-wrapping description TextView on top + the form below.  leftList is
+// passed so the form's Tab handler can jump focus back to the categories.
+func (b *Browser) buildSettingsRightColumn(category SettingCategory, leftList *tview.List) *tview.Flex {
+	descView := tview.NewTextView()
+	descView.SetDynamicColors(true)
+	descView.SetWordWrap(true)
+	descView.SetScrollable(true)
+	descView.SetMaxLines(3)
+	descView.SetTextColor(tcell.ColorYellow)
+	descView.SetText("Select a setting to see its description.")
+
 	rightForm := tview.NewForm()
 	rightForm.SetBorder(true)
 	rightForm.SetTitle(fmt.Sprintf("%s Settings", category.Name))
@@ -73,9 +89,6 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 
 	for _, setting := range settings {
 		label := setting.Name
-		if setting.Description != "" {
-			label += "\n" + setting.Description
-		}
 
 		switch setting.Type {
 		case "bool":
@@ -144,13 +157,34 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 		b.closeSettingsModal()
 	})
 
-	rightForm.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyTAB:
-			if event.Modifiers() != tcell.ModShift {
-				b.app.SetFocus(leftList)
-				return nil
+	// Update the description view when the focused form item changes.
+	updateDesc := func() {
+		idx, _ := rightForm.GetFocusedItemIndex()
+		if idx >= 0 && idx < len(settings) {
+			s := settings[idx]
+			text := s.Name
+			if s.Description != "" {
+				text += ": " + s.Description
 			}
+			descView.SetText(text)
+		}
+	}
+
+	rightForm.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		// Tab (no Shift) jumps to the left categories list.
+		// Shift+Tab also jumps to the left list.
+		// We must intercept BEFORE the form's internal handler, which would
+		// otherwise cycle between form fields and swallow the event.
+		if isTabKey(event) && event.Modifiers()&tcell.ModShift == 0 {
+			b.app.SetFocus(leftList)
+			return nil
+		}
+		if isShiftTab(event) {
+			b.app.SetFocus(leftList)
+			return nil
+		}
+
+		switch event.Key() {
 		case tcell.KeyUp:
 			if event.Modifiers()&tcell.ModCtrl != 0 {
 				formItem, btn := rightForm.GetFocusedItemIndex()
@@ -161,8 +195,10 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				if current > 0 {
 					rightForm.SetFocus(current - 1)
 				}
+				updateDesc()
 				return nil
 			}
+			updateDesc()
 		case tcell.KeyDown:
 			if event.Modifiers()&tcell.ModCtrl != 0 {
 				formItem, btn := rightForm.GetFocusedItemIndex()
@@ -174,8 +210,10 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				if current < total-1 {
 					rightForm.SetFocus(current + 1)
 				}
+				updateDesc()
 				return nil
 			}
+			updateDesc()
 		case tcell.KeyCtrlS:
 			b.saveSettings()
 			b.closeSettingsModal()
@@ -187,44 +225,82 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 		return event
 	})
 
+	// Show the first setting's description immediately.
+	if len(settings) > 0 {
+		s := settings[0]
+		text := s.Name
+		if s.Description != "" {
+			text += ": " + s.Description
+		}
+		descView.SetText(text)
+	}
+
+	rightFlex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(descView, 4, 0, false).
+		AddItem(rightForm, 0, 1, true)
+
+	return rightFlex
+}
+
+// updateRightColumn updates the right column with settings for the selected category
+func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, category SettingCategory) {
+	leftWidth := settingsLeftColumnWidth()
+
+	rightFlex := b.buildSettingsRightColumn(category, leftList)
+
+	// Tab in the left list jumps to the right form.
 	leftList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyTAB && !b.rightColumnEmpty {
-			b.app.SetFocus(rightForm)
-			return nil
+		if isTabKey(event) || isShiftTab(event) {
+			if !b.rightColumnEmpty {
+				if form := b.findFormInFlex(rightFlex); form != nil {
+					b.app.SetFocus(form)
+				}
+				return nil
+			}
 		}
 		return event
 	})
 
 	flex.Clear().
-		AddItem(leftList, 30, 1, true).
-		AddItem(rightForm, 0, 4, false)
+		AddItem(leftList, leftWidth, 1, true).
+		AddItem(rightFlex, 0, 4, false)
 
 	b.rightColumnEmpty = false
-	b.app.SetFocus(rightForm)
+	if form := b.findFormInFlex(rightFlex); form != nil {
+		b.app.SetFocus(form)
+	}
+}
+
+// findFormInFlex searches a Flex's children for the first Form primitive.
+func (b *Browser) findFormInFlex(f *tview.Flex) *tview.Form {
+	for i := 0; i < f.GetItemCount(); i++ {
+		item := f.GetItem(i)
+		if form, ok := item.(*tview.Form); ok {
+			return form
+		}
+	}
+	return nil
 }
 
 // updateRightColumnForEmpty updates the right column to show empty content and sets focus to left column
 func (b *Browser) updateRightColumnForEmpty(flex *tview.Flex, leftList *tview.List) {
-	// Create an empty form for the right column
 	emptyForm := tview.NewForm()
 	emptyForm.SetBorder(true)
 	emptyForm.SetTitle("Settings")
 
-	// Set up Tab key capture for the empty form to switch back to the left list
 	emptyForm.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyTAB {
+		if isTabKey(event) || isShiftTab(event) {
 			b.app.SetFocus(leftList)
 			return nil
 		}
 		return event
 	})
 
-	// Remove the old right column and add the empty one
 	flex.Clear().
-		AddItem(leftList, 30, 1, true).
+		AddItem(leftList, settingsLeftColumnWidth(), 1, true).
 		AddItem(emptyForm, 0, 4, false)
 
-	// Set focus to the left list as requested and mark right column as empty
 	b.rightColumnEmpty = true
 	b.app.SetFocus(leftList)
 }

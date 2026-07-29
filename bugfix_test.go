@@ -184,3 +184,37 @@ func TestNewTabHasKeyBindings(t *testing.T) {
 		t.Error("new tab should have input capture set (key bindings)")
 	}
 }
+
+// TestTabOperationsDontDeadlock verifies that newTab/closeTab/switchTab
+// complete without blocking when called synchronously (simulating the UI
+// thread).  The previous implementation used QueueUpdateDraw which deadlocks
+// when called from the event loop because QueueUpdate blocks waiting for the
+// event loop to process the queued function.
+func TestTabOperationsDontDeadlock(t *testing.T) {
+	// Use a nil app — the methods must handle this without blocking.
+	b := &Browser{app: nil}
+	b.tabs = []*Tab{newTab()}
+
+	done := make(chan struct{})
+	go func() {
+		// If any of these deadlock, the goroutine will hang and the
+		// timeout below will fire.
+		b.newTab()
+		b.newTab()
+		b.switchTab(1)
+		b.switchTab(0)
+		b.closeTab()
+		b.closeTab()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tab operations deadlocked (QueueUpdateDraw called from UI thread)")
+	}
+
+	if len(b.tabs) != 1 {
+		t.Errorf("expected 1 tab remaining, got %d", len(b.tabs))
+	}
+}

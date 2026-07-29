@@ -36,37 +36,37 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("\n[::b]# ")
+			result.WriteString("\n[cyan::b]# ")
 			*tabs += 2
 		case "h2":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("\n[::b]## ")
+			result.WriteString("\n[yellow::b]## ")
 			*tabs += 2
 		case "h3":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("\n[::b]### ")
+			result.WriteString("\n[green::b]### ")
 			*tabs += 2
 		case "h4":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("[::b]#### ")
+			result.WriteString("[blue::b]#### ")
 			*tabs += 2
 		case "h5":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("[::b]##### ")
+			result.WriteString("[magenta::b]##### ")
 			*tabs += 2
 		case "h6":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("[::b]###### ")
+			result.WriteString("[red::b]###### ")
 			*tabs += 2
 		case "p":
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
@@ -97,7 +97,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			for i := 0; i < *tabs; i++ {
 				result.WriteString("  ")
 			}
-			result.WriteString("> ") // Blockquote indicator
+			result.WriteString("[cyan]> [-]") // Coloured blockquote marker
 			*tabs += 1
 		case "a":
 			// Add link formatting but keep the content readable
@@ -131,7 +131,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
 				result.WriteString("\n")
 			}
-			result.WriteString("---\n") // Horizontal rule
+			result.WriteString(strings.Repeat("─", 40) + "\n") // Full-width horizontal rule
 		case "table":
 			b.renderTable(node, result, tabs)
 			return // children already processed by renderTable

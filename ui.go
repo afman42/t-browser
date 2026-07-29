@@ -153,6 +153,12 @@ func (b *Browser) setupKeyBindings(tv *tview.TextView) {
 			case 'N':
 				b.navigateSearchMatch(-1)
 				return nil
+			case '>':
+				b.nextTab()
+				return nil
+			case '<':
+				b.prevTab()
+				return nil
 			case '\t':
 				b.app.SetFocus(b.urlInput)
 				return nil
@@ -206,8 +212,8 @@ Search:
 Tabs:
   Ctrl+T - New tab
   Ctrl+W - Close tab
-  Ctrl+Tab    - Next tab
-  Ctrl+Shift+Tab - Previous tab
+  >      - Next tab
+  <      - Previous tab
 
 Settings:
   Ctrl+S - Open settings

@@ -97,6 +97,25 @@ func (b *Browser) getHistoryCompletions(prefix string, limit int) []string {
 	return matches
 }
 
+// itemsPerPage returns the configured pagination page size, falling back to
+// the ItemsPerPage constant when the config is unset or invalid.
+func (b *Browser) itemsPerPage() int {
+	if b.config != nil && b.config.ItemsPerPage > 0 {
+		return b.config.ItemsPerPage
+	}
+	return ItemsPerPage
+}
+
+// spinnerChar returns the braille glyph for the current loading animation
+// phase. Kept simple so it can be used from the UI goroutine.
+func (b *Browser) spinnerChar() string {
+	phases := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	if b.loadingPhase < 0 || b.loadingPhase >= len(phases) {
+		b.loadingPhase = 0
+	}
+	return phases[b.loadingPhase]
+}
+
 func (b *Browser) Run() error {
 	if b.config != nil {
 		configDir := GetConfigDir()
@@ -200,6 +219,9 @@ func (b *Browser) updateTabBar() {
 				label = label[:30] + "..."
 			}
 		}
+		if tab.loading {
+			label = b.spinnerChar() + " " + label
+		}
 		if i == b.activeTab {
 			sb.WriteString(fmt.Sprintf(" [::b][ %d: %s ][::-] ", i+1, label))
 		} else {
@@ -212,19 +234,29 @@ func (b *Browser) updateTabBar() {
 	b.tabBar.SetText(sb.String())
 }
 
+// redrawCurrentView replaces the root view and redraws.  It must only be
+// called from the UI/event-loop goroutine (e.g. from input captures).  Using
+// QueueUpdateDraw or Draw from the event loop deadlocks because both block
+// until the event loop processes the queued function — but the event loop is
+// already busy running this code.  ForceDraw is the tview-sanctioned way to
+// redraw during direct event handling.
+func (b *Browser) redrawCurrentView(focus tview.Primitive) {
+	if b.app == nil {
+		return
+	}
+	b.app.SetRoot(b.mainFlex(), true)
+	b.app.SetFocus(focus)
+	b.updateTabBar()
+	b.app.ForceDraw()
+}
+
 func (b *Browser) newTab() {
 	tab := newTab()
 	b.setupKeyBindings(tab.textView)
 	b.tabs = append(b.tabs, tab)
 	b.activeTab = len(b.tabs) - 1
 	b.ApplyTheme()
-	if b.app != nil {
-		b.app.QueueUpdateDraw(func() {
-			b.app.SetRoot(b.mainFlex(), true)
-			b.app.SetFocus(b.urlInput)
-			b.updateTabBar()
-		})
-	}
+	b.redrawCurrentView(b.urlInput)
 }
 
 func (b *Browser) closeTab() {
@@ -243,13 +275,7 @@ func (b *Browser) closeTab() {
 		b.activeTab = len(b.tabs) - 1
 	}
 	b.ApplyTheme()
-	if b.app != nil {
-		b.app.QueueUpdateDraw(func() {
-			b.app.SetRoot(b.mainFlex(), true)
-			b.app.SetFocus(b.currentTab().textView)
-			b.updateTabBar()
-		})
-	}
+	b.redrawCurrentView(b.currentTab().textView)
 }
 
 func (b *Browser) switchTab(index int) {
@@ -259,12 +285,8 @@ func (b *Browser) switchTab(index int) {
 	b.activeTab = index
 	b.ApplyTheme()
 	if b.app != nil {
-		b.app.QueueUpdateDraw(func() {
-			b.app.SetRoot(b.mainFlex(), true)
-			b.app.SetFocus(b.currentTab().textView)
-			b.updateStatusBar()
-			b.updateTabBar()
-		})
+		b.redrawCurrentView(b.currentTab().textView)
+		b.updateStatusBar()
 	}
 }
 

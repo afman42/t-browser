@@ -12,12 +12,22 @@ import (
 )
 
 func (b *Browser) NavigateTo(targetURL string) {
-	validatedURL, err := b.validateAndSanitizeURL(targetURL)
+	cleanedURL := b.cleanURLForNavigation(targetURL)
+
+	validatedURL, err := b.validateAndSanitizeURL(cleanedURL)
 	if err != nil {
-		b.app.QueueUpdateDraw(func() {
-			b.displayError(fmt.Sprintf("Invalid URL: %v", err))
-		})
+		// NavigateTo is called from the UI thread (input captures / DoneFunc),
+		// so we must NOT use QueueUpdateDraw or Draw here — both block until
+		// the event loop processes the queued function, but the event loop is
+		// busy running this code.  ForceDraw is safe during event handling.
+		b.displayError(fmt.Sprintf("Invalid URL: %v", err))
+		b.app.ForceDraw()
 		return
+	}
+
+	// Notify the user when tracking parameters were silently removed.
+	if cleanedURL != targetURL && b.config != nil && b.config.StripTrackingParams {
+		b.showStatusToast("[yellow]Stripped tracking parameters from URL[-]", 2500*time.Millisecond)
 	}
 
 	tab := b.currentTab()
@@ -48,8 +58,8 @@ func (b *Browser) NavigateTo(targetURL string) {
 				return
 			}
 
-			tab.currentURL = targetURL
-			b.renderPage(content, targetURL)
+			tab.currentURL = cleanedURL
+			b.renderPage(content, cleanedURL)
 			tab.currentLinkIndex = -1
 			b.updateTitleBar(-1)
 		})
@@ -78,6 +88,10 @@ func (b *Browser) validateAndSanitizeURL(inputURL string) (string, error) {
 	host := parsedURL.Hostname()
 	if isInternalAddress(host) {
 		return "", fmt.Errorf("access to local/internal addresses not allowed")
+	}
+
+	if err := b.checkBlockedDomain(inputURL); err != nil {
+		return "", err
 	}
 
 	if strings.Contains(inputURL, "..") || strings.Contains(inputURL, "0x00") {
@@ -181,6 +195,7 @@ func (b *Browser) showLoadingIndicator() {
 		return
 	}
 	b.isLoading = true
+	b.currentTab().loading = true
 	go b.animateLoading()
 }
 
@@ -194,9 +209,14 @@ func (b *Browser) animateLoading() {
 			return
 		default:
 			animationText := fmt.Sprintf(" %s Loading...", phases[currentPhase])
+			phase := currentPhase
 			b.app.QueueUpdateDraw(func() {
+				b.loadingPhase = phase
 				if b.statusBar != nil {
 					b.statusBar.SetText(animationText)
+				}
+				if b.tabBar != nil {
+					b.updateTabBar()
 				}
 			})
 			currentPhase = (currentPhase + 1) % len(phases)
@@ -225,5 +245,11 @@ func (b *Browser) hideLoadingIndicator() {
 	close(b.loadingStop)
 	b.loadingStop = make(chan struct{})
 	b.isLoading = false
+	for _, tab := range b.tabs {
+		tab.loading = false
+	}
+	if b.tabBar != nil {
+		b.updateTabBar()
+	}
 	b.updateStatusBar()
 }

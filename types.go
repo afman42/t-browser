@@ -36,6 +36,7 @@ type Tab struct {
 	searchHistory              []string
 	searchHistoryIndex         int
 	searchCaseSensitive        bool
+	loading                    bool
 }
 
 func newTab() *Tab {
@@ -75,6 +76,12 @@ type Browser struct {
 	settingsActive   bool
 	settingsChanged  bool
 	rightColumnEmpty bool
+
+	loadingPhase  int
+	toastMu       sync.Mutex
+	toastStop     chan struct{}
+	toastDone     chan struct{} // closed when the active toast goroutine exits
+	lastToastText string
 }
 
 func (b *Browser) currentTab() *Tab {

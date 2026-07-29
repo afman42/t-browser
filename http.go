@@ -63,17 +63,19 @@ func (c *PageCache) Put(rawURL string, entry *CacheEntry) {
 }
 
 type HTTPClient struct {
-	client       *http.Client
-	cookies      map[string]*Cookie
-	forceUA      string
-	proxy        *url.URL
-	maxRedirects int
-	config       *Config
-	hstsStore    *HSTSStore
-	pageCache    *PageCache
-	cancelMu     sync.Mutex
-	cancelFunc   context.CancelFunc
-	reqID        int64
+	client         *http.Client
+	cookies        map[string]*Cookie
+	forceUA        string
+	proxy          *url.URL
+	maxRedirects   int
+	maxRetries     int
+	retryBaseDelay time.Duration
+	config         *Config
+	hstsStore      *HSTSStore
+	pageCache      *PageCache
+	cancelMu       sync.Mutex
+	cancelFunc     context.CancelFunc
+	reqID          int64
 }
 
 func NewHTTPClient(config *Config) *HTTPClient {
@@ -85,6 +87,11 @@ func NewHTTPClient(config *Config) *HTTPClient {
 	maxRedirects := 10
 	if config != nil && config.MaxRedirects > 0 {
 		maxRedirects = config.MaxRedirects
+	}
+
+	maxRetries := 3
+	if config != nil {
+		maxRetries = config.MaxRetries
 	}
 
 	userAgent := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -135,12 +142,14 @@ func NewHTTPClient(config *Config) *HTTPClient {
 				return http.ErrUseLastResponse
 			},
 		},
-		cookies:      make(map[string]*Cookie),
-		forceUA:      userAgent,
-		maxRedirects: maxRedirects,
-		config:       config,
-		hstsStore:    hstsStore,
-		pageCache:    NewPageCache(),
+		cookies:        make(map[string]*Cookie),
+		forceUA:        userAgent,
+		maxRedirects:   maxRedirects,
+		maxRetries:     maxRetries,
+		retryBaseDelay: 1 * time.Second,
+		config:         config,
+		hstsStore:      hstsStore,
+		pageCache:      NewPageCache(),
 	}
 
 	client.loadCookiesFromFile()
@@ -162,7 +171,7 @@ func (c *HTTPClient) SetProxy(proxy *url.URL) {
 	}
 }
 
-func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int) (string, error) {
+func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, retryCount int) (string, error) {
 	if redirectCount > c.maxRedirects {
 		return "", fmt.Errorf("maximum redirect limit (%d) exceeded", c.maxRedirects)
 	}
@@ -205,6 +214,11 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 	var cachedEntry *CacheEntry
 	if c.pageCache != nil {
 		cachedEntry = c.pageCache.Get(rawURL)
+		// Client-side cache TTL: serve entries younger than the configured TTL
+		// directly from the cache without any network round-trip.
+		if cachedEntry != nil && c.cacheTTL() > 0 && time.Since(cachedEntry.CachedAt) < c.cacheTTL() {
+			return cachedEntry.Content, nil
+		}
 		if cachedEntry != nil {
 			if cachedEntry.ETag != "" {
 				req.Header.Set("If-None-Match", cachedEntry.ETag)
@@ -237,6 +251,20 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 		return cachedEntry.Content, nil
 	}
 
+	// Retry transient failures (429 Too Many Requests, 502/503/504) with an
+	// exponential backoff that honours the server's Retry-After header.  This
+	// runs before body processing so non-HTML error bodies are retried too.
+	// The backoff is interruptible by the request context so Esc still cancels.
+	if isTransientStatus(resp.StatusCode) && retryCount < c.maxRetries {
+		backoff := c.retryBackoff(resp, retryCount)
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(backoff):
+		}
+		return c.fetchPageWithRedirectLimit(rawURL, 0, retryCount+1)
+	}
+
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.Contains(strings.ToLower(contentType), "text/html") &&
 		!strings.Contains(strings.ToLower(contentType), "text/plain") &&
@@ -260,7 +288,7 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount int
 				return "", fmt.Errorf("invalid redirect URL: %w", parseErr)
 			}
 			resolved := parsedURL.ResolveReference(locURL)
-			return c.fetchPageWithRedirectLimit(resolved.String(), redirectCount+1)
+			return c.fetchPageWithRedirectLimit(resolved.String(), redirectCount+1, retryCount)
 		}
 	}
 
@@ -428,7 +456,7 @@ func convertEncoding(body []byte, encodingName string, maxSize int64) ([]byte, e
 }
 
 func (c *HTTPClient) FetchPage(rawURL string) (string, error) {
-	return c.fetchPageWithRedirectLimit(rawURL, 0)
+	return c.fetchPageWithRedirectLimit(rawURL, 0, 0)
 }
 
 func isValidRedirectLocation(location string, originalURL *url.URL) bool {

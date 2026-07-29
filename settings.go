@@ -19,6 +19,14 @@ func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 		if intVal, ok := value.(int); ok {
 			b.config.MaxRedirects = intVal
 		}
+	case "max_retries":
+		if intVal, ok := value.(int); ok {
+			b.config.MaxRetries = intVal
+		}
+	case "cache_ttl_seconds":
+		if intVal, ok := value.(int); ok {
+			b.config.CacheTTLSeconds = intVal
+		}
 	case "max_page_size":
 		if intVal, ok := value.(int); ok {
 			b.config.MaxPageSize = int64(intVal) * 1024 * 1024
@@ -43,6 +51,10 @@ func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 		if boolVal, ok := value.(bool); ok {
 			b.config.WordWrap = boolVal
 		}
+	case "items_per_page":
+		if intVal, ok := value.(int); ok {
+			b.config.ItemsPerPage = intVal
+		}
 	case "search_engine":
 		if strVal, ok := value.(string); ok {
 			b.config.SearchEngine = strVal
@@ -62,6 +74,10 @@ func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 	case "enforce_same_site":
 		if boolVal, ok := value.(bool); ok {
 			b.config.EnforceSameSite = boolVal
+		}
+	case "strip_tracking_params":
+		if boolVal, ok := value.(bool); ok {
+			b.config.StripTrackingParams = boolVal
 		}
 	case "cookie_auto_save":
 		if boolVal, ok := value.(bool); ok {
@@ -133,6 +149,8 @@ func (b *Browser) getSettingsForCategory(categoryID string) []Setting {
 		return []Setting{
 			{ID: "proxy", Name: "Proxy Server", Description: "Proxy server URL (e.g., http://proxy:port)", Value: b.config.Proxy, Type: "string"},
 			{ID: "max_redirects", Name: "Max Redirects", Description: "Maximum number of HTTP redirects to follow", Value: b.config.MaxRedirects, Type: "int"},
+			{ID: "max_retries", Name: "Max Retries", Description: "Retry attempts for transient errors (429/502/503/504)", Value: b.config.MaxRetries, Type: "int"},
+			{ID: "cache_ttl_seconds", Name: "Cache TTL (s)", Description: "Client cache freshness; 0 = always revalidate", Value: b.config.CacheTTLSeconds, Type: "int"},
 			{ID: "enable_pinning", Name: "Certificate Pinning", Description: "Verify server certificates against pinned public keys", Value: b.config.EnablePinning, Type: "bool"},
 			{ID: "enable_hsts", Name: "HSTS", Description: "Enforce HTTPS for known HSTS hosts (Strict-Transport-Security)", Value: b.config.EnableHSTS, Type: "bool"},
 		}
@@ -149,6 +167,7 @@ func (b *Browser) getSettingsForCategory(categoryID string) []Setting {
 			{ID: "theme", Name: "Theme", Description: "Color theme for the interface", Value: b.config.Theme, Type: "string"},
 			{ID: "show_images", Name: "Show Images", Description: "Display images in terminal", Value: b.config.ShowImages, Type: "bool"},
 			{ID: "word_wrap", Name: "Word Wrap", Description: "Enable text word wrapping", Value: b.config.WordWrap, Type: "bool"},
+			{ID: "items_per_page", Name: "Items Per Page", Description: "Page size for the links/images lists", Value: b.config.ItemsPerPage, Type: "int"},
 			{ID: "search_engine", Name: "Search Engine", Description: "URL prefix for web search (e.g. https://duckduckgo.com/html?q=)", Value: b.config.SearchEngine, Type: "string"},
 		}
 	case "privacy":
@@ -156,6 +175,7 @@ func (b *Browser) getSettingsForCategory(categoryID string) []Setting {
 			{ID: "enable_cookies", Name: "Enable Cookies", Description: "Enable or disable cookie storage", Value: b.config.EnableCookies, Type: "bool"},
 			{ID: "cookie_auto_save", Name: "Auto Save Cookies", Description: "Enable automatic cookie saving", Value: b.config.CookieAutoSave, Type: "bool"},
 			{ID: "enforce_same_site", Name: "Enforce SameSite", Description: "Enforce SameSite=Strict: block cookies on cross-domain requests", Value: b.config.EnforceSameSite, Type: "bool"},
+			{ID: "strip_tracking_params", Name: "Strip Tracking Params", Description: "Remove utm_*/fbclid/gclid etc. from navigated URLs", Value: b.config.StripTrackingParams, Type: "bool"},
 			{ID: "session_auto_save", Name: "Auto Save Session", Description: "Enable automatic session saving", Value: b.config.SessionAutoSave, Type: "bool"},
 		}
 	case "advanced":

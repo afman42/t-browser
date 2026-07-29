@@ -22,12 +22,15 @@ type Config struct {
 	SessionFile     string `mapstructure:"session_file"`
 	SessionAutoSave bool   `mapstructure:"session_auto_save"`
 
-	Proxy          string   `mapstructure:"proxy"`
-	RequestTimeout int      `mapstructure:"request_timeout"`
-	MaxRedirects   int      `mapstructure:"max_redirects"`
-	EnablePinning  bool     `mapstructure:"enable_pinning"`
-	PinnedKeys     []string `mapstructure:"pinned_keys"`
-	EnableHSTS     bool     `mapstructure:"enable_hsts"`
+	Proxy           string   `mapstructure:"proxy"`
+	RequestTimeout  int      `mapstructure:"request_timeout"`
+	MaxRedirects    int      `mapstructure:"max_redirects"`
+	MaxRetries      int      `mapstructure:"max_retries"`
+	CacheTTLSeconds int      `mapstructure:"cache_ttl_seconds"`
+	EnablePinning   bool     `mapstructure:"enable_pinning"`
+	PinnedKeys      []string `mapstructure:"pinned_keys"`
+	EnableHSTS      bool     `mapstructure:"enable_hsts"`
+	BlockedDomains  []string `mapstructure:"blocked_domains"`
 
 	MaxPageSize            int64 `mapstructure:"max_page_size"`
 	MaxImageSize           int64 `mapstructure:"max_image_size"`
@@ -36,11 +39,13 @@ type Config struct {
 	EnableContentSecurity  bool  `mapstructure:"enable_content_security"`
 	BlockExternalResources bool  `mapstructure:"block_external_resources"`
 
-	EnforceSameSite bool `mapstructure:"enforce_same_site"`
+	EnforceSameSite     bool `mapstructure:"enforce_same_site"`
+	StripTrackingParams bool `mapstructure:"strip_tracking_params"`
 
 	Theme        string `mapstructure:"theme"`
 	ShowImages   bool   `mapstructure:"show_images"`
 	WordWrap     bool   `mapstructure:"word_wrap"`
+	ItemsPerPage int    `mapstructure:"items_per_page"`
 	SearchEngine string `mapstructure:"search_engine"`
 }
 
@@ -55,9 +60,12 @@ func GetDefaultConfig() Config {
 		Proxy:                  "",
 		RequestTimeout:         30,
 		MaxRedirects:           10,
+		MaxRetries:             3,
+		CacheTTLSeconds:        0,
 		EnablePinning:          false,
 		PinnedKeys:             nil,
 		EnableHSTS:             true,
+		BlockedDomains:         nil,
 		MaxPageSize:            50 * 1024 * 1024,
 		MaxImageSize:           5 * 1024 * 1024,
 		EnableImages:           true,
@@ -65,9 +73,11 @@ func GetDefaultConfig() Config {
 		EnableContentSecurity:  true,
 		BlockExternalResources: true,
 		EnforceSameSite:        true,
+		StripTrackingParams:    true,
 		Theme:                  "dark",
 		ShowImages:             true,
 		WordWrap:               true,
+		ItemsPerPage:           20,
 		SearchEngine:           "https://duckduckgo.com/html?q=",
 	}
 }
@@ -163,9 +173,12 @@ func InitializeConfig() error {
 	viper.SetDefault("proxy", GetDefaultConfig().Proxy)
 	viper.SetDefault("request_timeout", GetDefaultConfig().RequestTimeout)
 	viper.SetDefault("max_redirects", GetDefaultConfig().MaxRedirects)
+	viper.SetDefault("max_retries", GetDefaultConfig().MaxRetries)
+	viper.SetDefault("cache_ttl_seconds", GetDefaultConfig().CacheTTLSeconds)
 	viper.SetDefault("enable_pinning", GetDefaultConfig().EnablePinning)
 	viper.SetDefault("pinned_keys", GetDefaultConfig().PinnedKeys)
 	viper.SetDefault("enable_hsts", GetDefaultConfig().EnableHSTS)
+	viper.SetDefault("blocked_domains", GetDefaultConfig().BlockedDomains)
 	viper.SetDefault("max_page_size", GetDefaultConfig().MaxPageSize)
 	viper.SetDefault("max_image_size", GetDefaultConfig().MaxImageSize)
 	viper.SetDefault("enable_images", GetDefaultConfig().EnableImages)
@@ -173,9 +186,11 @@ func InitializeConfig() error {
 	viper.SetDefault("enable_content_security", GetDefaultConfig().EnableContentSecurity)
 	viper.SetDefault("block_external_resources", GetDefaultConfig().BlockExternalResources)
 	viper.SetDefault("enforce_same_site", GetDefaultConfig().EnforceSameSite)
+	viper.SetDefault("strip_tracking_params", GetDefaultConfig().StripTrackingParams)
 	viper.SetDefault("theme", GetDefaultConfig().Theme)
 	viper.SetDefault("show_images", GetDefaultConfig().ShowImages)
 	viper.SetDefault("word_wrap", GetDefaultConfig().WordWrap)
+	viper.SetDefault("items_per_page", GetDefaultConfig().ItemsPerPage)
 	viper.SetDefault("search_engine", GetDefaultConfig().SearchEngine)
 
 	// Try to read the config file
