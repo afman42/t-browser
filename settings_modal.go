@@ -73,15 +73,12 @@ func (b *Browser) showSettingsModal() {
 
 // updateRightColumn updates the right column with settings for the selected category
 func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, category SettingCategory) {
-	// Create a new form for the right column
 	rightForm := tview.NewForm()
 	rightForm.SetBorder(true)
 	rightForm.SetTitle(fmt.Sprintf("%s Settings", category.Name))
 
-	// Get settings for the selected category
 	settings := b.getSettingsForCategory(category.ID)
 
-	// Add form items for each setting
 	for _, setting := range settings {
 		switch setting.Type {
 		case "bool":
@@ -141,19 +138,18 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				})
 			}
 		}
-		// Add the description as a static text item
 		rightForm.AddTextView("", setting.Description, 0, 1, false, false)
 	}
 
-	// Add only save button when settings have been changed
-	if b.settingsChanged {
-		rightForm.AddButton("Save", func() {
-			b.saveSettings()
-			b.closeSettingsModal()
-		})
-	}
+	rightForm.AddButton("Save", func() {
+		b.saveSettings()
+	})
+	rightForm.AddButton("Cancel", func() {
+		b.closeSettingsModal()
+	})
 
-	// Set up input capture for the form to handle navigation between form elements
+	itemCount := rightForm.GetFormItemCount() + rightForm.GetButtonCount()
+
 	rightForm.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyTAB:
@@ -162,11 +158,37 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 			}
 			b.app.SetFocus(leftList)
 			return nil
+		case tcell.KeyUp:
+			formItem, btn := rightForm.GetFocusedItemIndex()
+			current := formItem
+			if formItem < 0 {
+				current = rightForm.GetFormItemCount() + btn
+			}
+			if current > 0 {
+				rightForm.SetFocus(current - 1)
+			}
+			return nil
+		case tcell.KeyDown:
+			formItem, btn := rightForm.GetFocusedItemIndex()
+			current := formItem
+			if formItem < 0 {
+				current = rightForm.GetFormItemCount() + btn
+			}
+			if current < itemCount-1 {
+				rightForm.SetFocus(current + 1)
+			}
+			return nil
+		case tcell.KeyEnter:
+			formItem, _ := rightForm.GetFocusedItemIndex()
+			if formItem < 0 {
+				b.saveSettings()
+				b.closeSettingsModal()
+				return nil
+			}
 		}
 		return event
 	})
 
-	// Set up input capture for the left list to handle navigation between categories and switching to form
 	leftList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyTAB:
@@ -178,12 +200,10 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 		return event
 	})
 
-	// Remove the old right column and add the new one
 	flex.Clear().
 		AddItem(leftList, 30, 1, true).
 		AddItem(rightForm, 0, 4, false)
 
-	// Set focus to the form so user can immediately start editing
 	b.rightColumnEmpty = false
 	b.app.SetFocus(rightForm)
 }
@@ -217,13 +237,6 @@ func (b *Browser) updateRightColumnForEmpty(flex *tview.Flex, leftList *tview.Li
 // closeSettingsModal closes the settings modal and returns to browser
 func (b *Browser) closeSettingsModal() {
 	b.settingsActive = false
-
-	// Restore the main browser UI
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(b.currentTab().textView, 0, 1, false).
-		AddItem(b.urlInput, 3, 0, false)
-
-	b.app.SetRoot(flex, true)
+	b.app.SetRoot(b.mainFlex(), true)
 	b.app.SetFocus(b.currentTab().textView)
 }
