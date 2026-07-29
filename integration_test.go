@@ -314,17 +314,6 @@ func TestSessionSaveBadPath(t *testing.T) {
 	}
 }
 
-// --- GetHighlightColor test ---
-
-func TestGetHighlightColorCoverage(t *testing.T) {
-	result := GetHighlightColor("test")
-	if result == "" {
-		t.Error("GetHighlightColor returned empty")
-	}
-}
-
-// --- CleanExcessiveWhitespace edge cases ---
-
 func TestCleanExcessiveWhitespaceEdgeCases(t *testing.T) {
 	tests := []struct {
 		input string

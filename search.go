@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-// SearchMatch holds information about each search match
 type SearchMatch struct {
 	LineNum   int
 	LineText  string
@@ -15,115 +15,121 @@ type SearchMatch struct {
 	CharEnd   int
 }
 
-// startSearch starts the search functionality
+const maxSearchHistory = 20
+
 func (b *Browser) startSearch() {
-	// Initialize the mapping
-	b.currentTab().displayToMatchIndex = make(map[int]int)
+	tab := b.currentTab()
+	tab.displayToMatchIndex = make(map[int]int)
+	tab.searchHistoryIndex = -1
 
-	// Create a modal search with input field and results list
 	inputField := tview.NewInputField().
-		SetLabel("Real-time search (case-sensitive): ").
-		SetDoneFunc(func(key tcell.Key) {
-			if key == tcell.KeyEnter || key == tcell.KeyEscape {
-				// Return to main view when Enter or Escape is pressed
-				// Only restore original content if we're not returning from a search result selection
-				if !b.currentTab().returningFromSearchResult && b.currentTab().searchTerm == "" {
-					b.currentTab().textView.SetText(b.currentTab().originalContent)
-				} else if b.currentTab().returningFromSearchResult && b.currentTab().searchTerm != "" {
-					// If returning from selection and search term exists, maintain highlighting
-					highlightedText := b.highlightSearchTerm(b.currentTab().originalContent, b.currentTab().searchTerm, true)
-					b.currentTab().textView.SetText(highlightedText)
-				}
+		SetLabel(b.searchLabel())
 
-				// Reset the flag
-				b.currentTab().returningFromSearchResult = false
-
-				// Restore the proper flex layout with URL input
-				b.app.SetRoot(b.mainFlex(), true)
-				b.app.SetFocus(b.currentTab().textView) // Ensure content view has focus after search
-			}
-		})
-
-	// Create a list for search results
 	resultsList := tview.NewList()
 	resultsList.SetBorder(true)
 	resultsList.SetTitle("Search Results")
 
-	// Layout container for both input and results
+	searchPanel := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(inputField, 3, 0, true).
+		AddItem(resultsList, 0, 1, false)
+
 	layout := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(inputField, 3, 1, true).  // Input field takes 3 lines
-		AddItem(resultsList, 0, 1, false) // Results list takes remaining space
+		AddItem(b.tabBar, 1, 0, false).
+		AddItem(tab.textView, 0, 1, false).
+		AddItem(searchPanel, 12, 0, true).
+		AddItem(b.statusBar, 1, 0, false).
+		AddItem(b.urlInput, 3, 0, false)
 
-	// Set up real-time search
-	inputField.SetChangedFunc(func(text string) {
-		// Update search in real-time as user types
-		b.currentTab().searchTerm = text
-		// By default, perform case-sensitive search
-		matchCount, _ := b.performSearchWithMatches(text, true)
+	runSearch := func(text string) {
+		tab.searchTerm = text
 
-		// Find matches with context for the list
-		b.currentTab().searchMatches = b.findSearchMatchesWithPositions(b.currentTab().originalContent, text, true)
-
-		// Update the label to show match count
-		if text != "" {
-			inputField.SetLabel(fmt.Sprintf("Real-time search (case-sensitive) - %d matches: ", matchCount))
-		} else {
-			inputField.SetLabel("Real-time search (case-sensitive): ")
+		if text == "" {
+			tab.textView.SetText(tab.originalContent)
+			tab.searchMatches = nil
+			inputField.SetLabel(b.searchLabel())
+			resultsList.Clear()
+			resultsList.AddItem("Type to search...", "", 0, nil)
+			return
 		}
 
-		// Clear the results list
-		resultsList.Clear()
+		re := compileSearchRegex(text, tab.searchCaseSensitive)
+		tab.searchMatches = b.findSearchMatchesWithPositions(tab.originalContent, re)
+		matchCount := len(tab.searchMatches)
 
-		// Update results list with unique match titles
-		if len(b.currentTab().searchMatches) > 0 {
-			// Use a map to track which line text has already been added to avoid duplicates
+		inputField.SetLabel(fmt.Sprintf("%s - %d matches: ", b.searchLabel(), matchCount))
+
+		resultsList.Clear()
+		if matchCount > 0 {
 			seenTexts := make(map[string]bool)
-			itemIndex := 1 // Start from 1 for display purposes
-			// Create a mapping to track which internal match index corresponds to each displayed item
+			itemIndex := 1
 			displayToMatchIndex := make(map[int]int)
-			for i, match := range b.currentTab().searchMatches {
-				// Truncate the line text for display if it's too long
-				displayText := match.LineText
-				if len(displayText) > 50 {
-					displayText = displayText[:50] + "..."
-				}
-				// Remove any existing tview formatting codes and unwanted Unicode characters from the display text
-				cleanText := removeUnwantedCharsFromDisplay(displayText)
-				// Only add if this text hasn't been added before
+			for i, match := range tab.searchMatches {
+				cleanText := removeUnwantedCharsFromDisplay(truncateRunes(match.LineText, 50))
 				if !seenTexts[cleanText] {
 					seenTexts[cleanText] = true
-					displayToMatchIndex[itemIndex-1] = i // Store the mapping (0-indexed for internal match)
-					// Add the search result with a prefix showing the index
-					resultsList.AddItem(fmt.Sprintf("%d: %s", itemIndex, cleanText), "", rune('0'+(itemIndex%10)), nil)
+					displayToMatchIndex[itemIndex-1] = i
+					resultsList.AddItem(fmt.Sprintf("%d: %s", itemIndex, cleanText), "", 0, nil)
 					itemIndex++
 				}
 			}
-
-			// Store the mapping for later use in navigation
-			b.currentTab().displayToMatchIndex = displayToMatchIndex
+			tab.displayToMatchIndex = displayToMatchIndex
 		} else {
 			resultsList.AddItem("No matches found", "", 0, nil)
 		}
 
-		// If we're returning from a search result selection, highlight all matches
-		if b.currentTab().returningFromSearchResult && text != "" {
-			highlightedText := b.highlightSearchTerm(b.currentTab().originalContent, text, true)
-			b.currentTab().textView.SetText(highlightedText)
+		highlightedText := b.highlightSearchTerm(tab.originalContent, re)
+		tab.textView.SetText(highlightedText)
+	}
+
+	inputField.SetChangedFunc(func(text string) {
+		runSearch(text)
+	})
+
+	inputField.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter || key == tcell.KeyEscape {
+			b.saveSearchHistory(tab)
+			if key == tcell.KeyEscape && tab.searchTerm == "" {
+				tab.textView.SetText(tab.originalContent)
+			} else if tab.searchTerm != "" {
+				re := compileSearchRegex(tab.searchTerm, tab.searchCaseSensitive)
+				highlightedText := b.highlightSearchTerm(tab.originalContent, re)
+				tab.textView.SetText(highlightedText)
+			}
+			tab.returningFromSearchResult = false
+			b.app.SetRoot(b.mainFlex(), true)
+			b.app.SetFocus(tab.textView)
 		}
 	})
 
-	// Set up input capture for the input field to handle Tab key
 	inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyTAB {
-			// Switch focus to the results list
+		switch event.Key() {
+		case tcell.KeyTAB:
 			b.app.SetFocus(resultsList)
-			return nil // Consume the event
+			return nil
+		case tcell.KeyUp:
+			newText := b.cycleSearchHistory(tab, -1)
+			if newText != "" {
+				inputField.SetText(newText)
+			}
+			return nil
+		case tcell.KeyDown:
+			newText := b.cycleSearchHistory(tab, 1)
+			if newText != "" {
+				inputField.SetText(newText)
+			}
+			return nil
+		case tcell.KeyRune:
+			if event.Rune() == 'i' {
+				tab.searchCaseSensitive = !tab.searchCaseSensitive
+				runSearch(inputField.GetText())
+				return nil
+			}
 		}
 		return event
 	})
 
-	// Set up input capture for the results list to handle j/k navigation and Tab key
 	resultsList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyRune:
@@ -147,74 +153,122 @@ func (b *Browser) startSearch() {
 				return nil
 			}
 		case tcell.KeyTAB:
-			// Switch focus to the input field
 			b.app.SetFocus(inputField)
-			return nil // Consume the event
+			return nil
 		case tcell.KeyEnter:
-			// Get the selected item and navigate to it in the content
 			displayIndex := resultsList.GetCurrentItem()
-			if internalIdx, exists := b.currentTab().displayToMatchIndex[displayIndex]; exists && internalIdx < len(b.currentTab().searchMatches) {
-				// Set flag to indicate we're returning from a search result selection
-				b.currentTab().returningFromSearchResult = true
+			if internalIdx, exists := tab.displayToMatchIndex[displayIndex]; exists && internalIdx < len(tab.searchMatches) {
+				tab.returningFromSearchResult = true
+				selectedMatch := tab.searchMatches[internalIdx]
+				tab.currentMatchStart = selectedMatch.CharStart
+				tab.currentMatchEnd = selectedMatch.CharEnd
+				tab.currentMatchIdx = internalIdx
 
-				// Store the selected match to highlight in the main content
-				selectedMatch := b.currentTab().searchMatches[internalIdx]
-
-				// Create highlighted text where the specific selected match has a different highlight
-				highlightedText := b.highlightSelectedMatch(b.currentTab().originalContent, b.currentTab().searchTerm, selectedMatch)
-				b.currentTab().textView.SetText(highlightedText)
-
-				// Scroll to the position of the selected match
+				re := compileSearchRegex(tab.searchTerm, tab.searchCaseSensitive)
+				highlightedText := b.highlightSelectedMatch(tab.originalContent, re, selectedMatch)
+				tab.textView.SetText(highlightedText)
 				b.scrollToMatch(selectedMatch)
+				b.updateMatchPositionStatus(internalIdx, len(tab.searchMatches))
 
-				// Return to main view after navigating
 				b.app.SetRoot(b.mainFlex(), true)
-				b.app.SetFocus(b.currentTab().textView)
+				b.app.SetFocus(tab.textView)
 			}
 			return nil
 		}
-
 		return event
 	})
 
-	// Reset the flag when starting search
-	b.currentTab().returningFromSearchResult = false
+	tab.returningFromSearchResult = false
 
-	// Set focus to the input field when starting search
+	if tab.searchTerm != "" {
+		inputField.SetText(tab.searchTerm)
+	}
+
 	b.app.SetRoot(layout, true)
 	b.app.SetFocus(inputField)
-}
-
-// restoreFromSearch restores the main content view after search is dismissed.
-func (b *Browser) restoreFromSearch() {
-	if !b.currentTab().returningFromSearchResult && b.currentTab().searchTerm == "" {
-		b.currentTab().textView.SetText(b.currentTab().originalContent)
-	} else if b.currentTab().returningFromSearchResult && b.currentTab().searchTerm != "" {
-		highlightedText := b.highlightSearchTerm(b.currentTab().originalContent, b.currentTab().searchTerm, true)
-		b.currentTab().textView.SetText(highlightedText)
+	if tab.searchTerm == "" {
+		resultsList.AddItem("Type to search...", "", 0, nil)
 	}
-	b.currentTab().returningFromSearchResult = false
-
-	b.app.SetRoot(b.mainFlex(), true)
-	b.app.SetFocus(b.currentTab().textView)
 }
 
-// navigateSearchMatch moves to the next or previous search match
+func (b *Browser) searchLabel() string {
+	tab := b.currentTab()
+	if tab.searchCaseSensitive {
+		return "Search (case-sensitive, i to toggle)"
+	}
+	return "Search (case-insensitive, i to toggle)"
+}
+
+func (b *Browser) saveSearchHistory(tab *Tab) {
+	term := strings.TrimSpace(tab.searchTerm)
+	if term == "" {
+		return
+	}
+	for i, h := range tab.searchHistory {
+		if h == term {
+			tab.searchHistory = append(tab.searchHistory[:i], tab.searchHistory[i+1:]...)
+			break
+		}
+	}
+	tab.searchHistory = append(tab.searchHistory, term)
+	if len(tab.searchHistory) > maxSearchHistory {
+		tab.searchHistory = tab.searchHistory[len(tab.searchHistory)-maxSearchHistory:]
+	}
+}
+
+func (b *Browser) cycleSearchHistory(tab *Tab, direction int) string {
+	if len(tab.searchHistory) == 0 {
+		return ""
+	}
+	if tab.searchHistoryIndex < 0 || tab.searchHistoryIndex >= len(tab.searchHistory) {
+		if direction > 0 {
+			tab.searchHistoryIndex = 0
+		} else {
+			tab.searchHistoryIndex = len(tab.searchHistory) - 1
+		}
+	} else {
+		tab.searchHistoryIndex += direction
+		if tab.searchHistoryIndex < 0 {
+			tab.searchHistoryIndex = len(tab.searchHistory) - 1
+		} else if tab.searchHistoryIndex >= len(tab.searchHistory) {
+			tab.searchHistoryIndex = 0
+		}
+	}
+	return tab.searchHistory[tab.searchHistoryIndex]
+}
+
+func (b *Browser) updateMatchPositionStatus(current, total int) {
+	if b.statusBar == nil {
+		return
+	}
+	tab := b.currentTab()
+	b.statusBar.SetText(fmt.Sprintf(" Match %d/%d for '%s' | %d links | %d images",
+		current+1, total, tab.searchTerm, len(tab.links), len(tab.images)))
+}
+
+func (b *Browser) restoreFromSearch() {
+	tab := b.currentTab()
+	b.saveSearchHistory(tab)
+	if tab.searchTerm != "" {
+		re := compileSearchRegex(tab.searchTerm, tab.searchCaseSensitive)
+		highlightedText := b.highlightSearchTerm(tab.originalContent, re)
+		tab.textView.SetText(highlightedText)
+	} else {
+		tab.textView.SetText(tab.originalContent)
+	}
+	tab.returningFromSearchResult = false
+	b.app.SetRoot(b.mainFlex(), true)
+	b.app.SetFocus(tab.textView)
+}
+
 func (b *Browser) navigateSearchMatch(direction int) {
 	tab := b.currentTab()
 	if tab.searchTerm == "" || len(tab.searchMatches) == 0 {
 		return
 	}
 
-	currentIdx := -1
-	for i, match := range tab.searchMatches {
-		if match.CharStart == tab.currentMatchStart && match.CharEnd == tab.currentMatchEnd {
-			currentIdx = i
-			break
-		}
-	}
-
-	if currentIdx == -1 {
+	currentIdx := tab.currentMatchIdx
+	if currentIdx < 0 || currentIdx >= len(tab.searchMatches) {
 		if direction > 0 {
 			currentIdx = 0
 		} else {
@@ -232,47 +286,24 @@ func (b *Browser) navigateSearchMatch(direction int) {
 	selectedMatch := tab.searchMatches[currentIdx]
 	tab.currentMatchStart = selectedMatch.CharStart
 	tab.currentMatchEnd = selectedMatch.CharEnd
+	tab.currentMatchIdx = currentIdx
 
-	highlightedText := b.highlightSelectedMatch(tab.originalContent, tab.searchTerm, selectedMatch)
+	re := compileSearchRegex(tab.searchTerm, tab.searchCaseSensitive)
+	highlightedText := b.highlightSelectedMatch(tab.originalContent, re, selectedMatch)
 	tab.textView.SetText(highlightedText)
 	b.scrollToMatch(selectedMatch)
+	b.updateMatchPositionStatus(currentIdx, len(tab.searchMatches))
 }
 
-// updateTextForSelectedSearchMatch highlights the currently selected search match
-// in the results list and scrolls to it. Used by both j/k key handlers.
 func (b *Browser) updateTextForSelectedSearchMatch(resultsList *tview.List) {
 	tab := b.currentTab()
 	displayIndex := resultsList.GetCurrentItem()
 	if internalIdx, exists := tab.displayToMatchIndex[displayIndex]; exists && internalIdx < len(tab.searchMatches) {
 		selectedMatch := tab.searchMatches[internalIdx]
-		highlightedText := b.highlightSelectedMatch(tab.originalContent, tab.searchTerm, selectedMatch)
+		re := compileSearchRegex(tab.searchTerm, tab.searchCaseSensitive)
+		highlightedText := b.highlightSelectedMatch(tab.originalContent, re, selectedMatch)
 		tab.textView.SetText(highlightedText)
 		b.scrollToMatch(selectedMatch)
+		b.updateMatchPositionStatus(internalIdx, len(tab.searchMatches))
 	}
-}
-
-// performSearch performs the text search in the current page
-func (b *Browser) performSearch(term string, caseSensitive bool) {
-	b.performSearchWithMatches(term, caseSensitive)
-}
-
-// performSearchWithMatches performs the text search and returns the match count and matches
-func (b *Browser) performSearchWithMatches(term string, caseSensitive bool) (int, []string) {
-	tab := b.currentTab()
-	text := tab.originalContent
-
-	if term == "" {
-		tab.textView.SetText(text)
-		tab.searchTerm = ""
-		tab.textView.ScrollToBeginning()
-		return 0, []string{}
-	}
-
-	matchCount, matches := b.findSearchMatches(text, term, caseSensitive)
-	highlightedText := b.highlightSearchTerm(text, term, caseSensitive)
-
-	tab.textView.SetText(highlightedText)
-	tab.textView.ScrollToBeginning()
-
-	return matchCount, matches
 }

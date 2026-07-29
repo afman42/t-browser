@@ -52,22 +52,15 @@ func TestRemoveUnwantedCharsFromDisplay(t *testing.T) {
 	}
 }
 
-func TestGetHighlightColor(t *testing.T) {
-	result := GetHighlightColor("test")
-	if result == "" {
-		t.Error("GetHighlightColor should return non-empty string")
-	}
-}
-
 func TestCurrentPosAtLineStart(t *testing.T) {
 	text := "line0\nline1\nline2"
 	tests := []struct {
 		lineIndex int
 		want      int
 	}{
-		{0, 0},  // start of first line
-		{1, 6},  // start of second line (after "line0\n")
-		{2, 12}, // start of third line (after "line0\nline1\n")
+		{0, 0},
+		{1, 6},
+		{2, 12},
 	}
 
 	for _, tc := range tests {

@@ -31,7 +31,11 @@ type Tab struct {
 	displayToMatchIndex        map[int]int
 	currentMatchStart          int
 	currentMatchEnd            int
+	currentMatchIdx            int
 	metaRefreshCancel          context.CancelFunc
+	searchHistory              []string
+	searchHistoryIndex         int
+	searchCaseSensitive        bool
 }
 
 func newTab() *Tab {
@@ -43,10 +47,12 @@ func newTab() *Tab {
 	tv.SetBorder(true)
 	tv.SetTitle("Terminal Browser - Press Ctrl+C to quit, / for search")
 	return &Tab{
-		textView:         tv,
-		history:          make([]string, 0),
-		historyIndex:     -1,
-		currentLinkIndex: -1,
+		textView:            tv,
+		history:             make([]string, 0),
+		historyIndex:        -1,
+		currentLinkIndex:    -1,
+		searchCaseSensitive: true,
+		searchHistoryIndex:  -1,
 	}
 }
 
