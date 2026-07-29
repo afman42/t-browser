@@ -80,13 +80,18 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 	settings := b.getSettingsForCategory(category.ID)
 
 	for _, setting := range settings {
+		label := setting.Name
+		if setting.Description != "" {
+			label += "\n" + setting.Description
+		}
+
 		switch setting.Type {
 		case "bool":
 			value, ok := setting.Value.(bool)
 			if !ok {
 				value = false
 			}
-			rightForm.AddCheckbox(setting.Name, value, func(checked bool) {
+			rightForm.AddCheckbox(label, value, func(checked bool) {
 				b.updateSettingValue(setting.ID, checked)
 				b.settingsChanged = true
 			})
@@ -100,7 +105,7 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 			default:
 				valueStr = "0"
 			}
-			rightForm.AddInputField(setting.Name, valueStr, 20, nil, func(text string) {
+			rightForm.AddInputField(label, valueStr, 20, nil, func(text string) {
 				var intVal int
 				if _, err := fmt.Sscanf(text, "%d", &intVal); err == nil {
 					b.updateSettingValue(setting.ID, intVal)
@@ -112,7 +117,7 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 			if !ok {
 				value = ""
 			}
-			rightForm.AddPasswordField(setting.Name, value, 40, '*', nil)
+			rightForm.AddPasswordField(label, value, 40, '*', nil)
 		case "string":
 			if setting.ID == "theme" {
 				value, ok := setting.Value.(string)
@@ -123,7 +128,7 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				if value == "light" {
 					currentOption = 1
 				}
-				rightForm.AddDropDown(setting.Name, []string{"dark", "light"}, currentOption, func(option string, optionIndex int) {
+				rightForm.AddDropDown(label, []string{"dark", "light"}, currentOption, func(option string, optionIndex int) {
 					b.updateSettingValue(setting.ID, option)
 					b.settingsChanged = true
 				})
@@ -132,13 +137,12 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 				if !ok {
 					value = ""
 				}
-				rightForm.AddInputField(setting.Name, value, 40, nil, func(text string) {
+				rightForm.AddInputField(label, value, 40, nil, func(text string) {
 					b.updateSettingValue(setting.ID, text)
 					b.settingsChanged = true
 				})
 			}
 		}
-		rightForm.AddTextView("", setting.Description, 0, 1, false, false)
 	}
 
 	rightForm.AddButton("Save", func() {
@@ -148,53 +152,17 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 		b.closeSettingsModal()
 	})
 
-	itemCount := rightForm.GetFormItemCount() + rightForm.GetButtonCount()
-
 	rightForm.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyTAB:
-			if event.Modifiers() == tcell.ModShift {
-				return event
-			}
+		if event.Key() == tcell.KeyTAB && event.Modifiers() != tcell.ModShift {
 			b.app.SetFocus(leftList)
 			return nil
-		case tcell.KeyUp:
-			formItem, btn := rightForm.GetFocusedItemIndex()
-			current := formItem
-			if formItem < 0 {
-				current = rightForm.GetFormItemCount() + btn
-			}
-			if current > 0 {
-				rightForm.SetFocus(current - 1)
-			}
-			return nil
-		case tcell.KeyDown:
-			formItem, btn := rightForm.GetFocusedItemIndex()
-			current := formItem
-			if formItem < 0 {
-				current = rightForm.GetFormItemCount() + btn
-			}
-			if current < itemCount-1 {
-				rightForm.SetFocus(current + 1)
-			}
-			return nil
-		case tcell.KeyEnter:
-			formItem, _ := rightForm.GetFocusedItemIndex()
-			if formItem < 0 {
-				b.saveSettings()
-				b.closeSettingsModal()
-				return nil
-			}
 		}
 		return event
 	})
 
 	leftList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyTAB:
-			if !b.rightColumnEmpty {
-				b.app.SetFocus(rightForm)
-			}
+		if event.Key() == tcell.KeyTAB && !b.rightColumnEmpty {
+			b.app.SetFocus(rightForm)
 			return nil
 		}
 		return event
