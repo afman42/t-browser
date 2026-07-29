@@ -114,32 +114,6 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	result.Reset()
 }
 
-func (b *Browser) renderPageWithReadabilityContent(article readability.Article) {
-	var result strings.Builder
-
-	if article.Title != "" {
-		result.WriteString(fmt.Sprintf("[::b]%s[::-]\n", article.Title))
-	}
-
-	cleanedContent := cleanExcessiveWhitespace(article.TextContent)
-	result.WriteString(cleanedContent)
-
-	if article.Image != "" {
-		result.WriteString(fmt.Sprintf("\n[Image: %s]", article.Image))
-	}
-
-	originalUnprocessedContent := result.String()
-	themeProcessedContent := b.ensureContentVisibilityForTheme(originalUnprocessedContent)
-
-	tab := b.currentTab()
-	tab.originalUnprocessedContent = originalUnprocessedContent
-	tab.originalContent = themeProcessedContent
-
-	b.updateWordWrapBasedOnContent(originalUnprocessedContent)
-	tab.textView.SetText(themeProcessedContent)
-	tab.textView.ScrollToBeginning()
-}
-
 func cleanExcessiveWhitespace(text string) string {
 	lines := strings.Split(text, "\n")
 	var cleanedLines []string
@@ -164,10 +138,6 @@ type Image struct {
 	Alt   string
 	Title string
 	Src   string
-}
-
-func (b *Browser) extractLinksFromContent(content string, baseURL *url.URL) []Link {
-	return []Link{}
 }
 
 func extractImagesFromDoc(doc *goquery.Document, baseURL *url.URL) []Image {

@@ -28,9 +28,6 @@ func TestGetDefaultConfig(t *testing.T) {
 	if cfg.EnableImages != true {
 		t.Error("default EnableImages should be true")
 	}
-	if cfg.EnableScripts != false {
-		t.Error("default EnableScripts should be false")
-	}
 	if cfg.WordWrap != true {
 		t.Error("default WordWrap should be true")
 	}

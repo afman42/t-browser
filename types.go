@@ -64,7 +64,6 @@ type Browser struct {
 	statusBar   *tview.TextView
 	tabBar      *tview.TextView
 	client      *HTTPClient
-	proxy       string
 	forceUA     string
 	isLoading   bool
 	loadingStop chan struct{}

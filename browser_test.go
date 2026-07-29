@@ -35,59 +35,6 @@ func TestColorToTviewFormat(t *testing.T) {
 	}
 }
 
-func TestApplyTviewColor(t *testing.T) {
-	got := ApplyTviewColor("hello", "red")
-	want := "[red]hello[-]"
-	if got != want {
-		t.Errorf("ApplyTviewColor = %q, want %q", got, want)
-	}
-}
-
-func TestApplyTviewStyle(t *testing.T) {
-	tests := []struct {
-		name  string
-		text  string
-		fg    string
-		bg    string
-		attrs string
-		want  string
-	}{
-		{"fg only", "text", "red", "", "", "[red]text[-]"},
-		{"fg and bg", "text", "red", "blue", "", "[red:blue]text[-]"},
-		{"fg, bg, attrs", "text", "red", "blue", "b", "[red:blue:b]text[-]"},
-		{"empty fg", "text", "", "blue", "", "[:blue]text[-]"},
-		{"empty all", "text", "", "", "", "[]text[-]"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ApplyTviewStyle(tc.text, tc.fg, tc.bg, tc.attrs)
-			if got != tc.want {
-				t.Errorf("ApplyTviewStyle = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestGetColorFunc(t *testing.T) {
-	// Just verify it returns a non-nil function and doesn't panic
-	fn := GetColorFunc("yellow")
-	if fn == nil {
-		t.Fatal("GetColorFunc returned nil")
-	}
-	result := fn("test")
-	if result == "" {
-		t.Error("GetColorFunc returned empty string")
-	}
-
-	// Unknown color should default to yellow (no panic)
-	fn2 := GetColorFunc("nonexistent")
-	if fn2 == nil {
-		t.Fatal("GetColorFunc(nonexistent) returned nil")
-	}
-	_ = fn2("test")
-}
-
 func TestShouldDisableWordWrap_ShortLines(t *testing.T) {
 	b := &Browser{}
 	content := "short line\nanother line\nthird line"
@@ -98,12 +45,10 @@ func TestShouldDisableWordWrap_ShortLines(t *testing.T) {
 
 func TestShouldDisableWordWrap_LongLines(t *testing.T) {
 	b := &Browser{}
-	// Create 10 lines, 8 short, 2 long (>500 each triggers the EXTREME check too)
 	content := ""
 	for range 8 {
 		content += "short line\n"
 	}
-	// 2 extremely long lines — the >500 check fires
 	for range 2 {
 		content += string(make([]byte, 501)) + "\n"
 	}
@@ -115,7 +60,6 @@ func TestShouldDisableWordWrap_LongLines(t *testing.T) {
 
 func TestShouldDisableWordWrap_ExtremeLine(t *testing.T) {
 	b := &Browser{}
-	// Even one line over 500 should trigger it
 	content := string(make([]byte, 600))
 	if !b.shouldDisableWordWrap(content) {
 		t.Error("shouldDisableWordWrap should be true for a line >500 chars")

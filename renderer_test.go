@@ -190,20 +190,6 @@ func TestExtractImagesFromDocEmptyDoc(t *testing.T) {
 	}
 }
 
-func TestExtractLinksFromContent(t *testing.T) {
-	b := &Browser{}
-	url, _ := url.Parse("https://example.com")
-	links := b.extractLinksFromContent("some content", url)
-	if links == nil {
-		t.Error("extractLinksFromContent should return empty slice, not nil")
-	}
-	if len(links) != 0 {
-		t.Errorf("expected empty links, got %d", len(links))
-	}
-}
-
-// --- Bug #5: resolveURL with protocol-relative URLs ---
-
 func TestResolveURL(t *testing.T) {
 	base, _ := url.Parse("https://example.com/path/page.html")
 
