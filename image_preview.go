@@ -54,7 +54,7 @@ func (b *Browser) showImagePreview(imageURL string) {
 
 	imgWidget := tview.NewImage()
 	imgWidget.SetBorder(true)
-	imgWidget.SetTitle("Image Preview - q/Esc close, s scale, r reset")
+	imgWidget.SetTitle("Image Preview - q/Esc to close")
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -64,9 +64,6 @@ func (b *Browser) showImagePreview(imageURL string) {
 	loadingStop := make(chan struct{})
 
 	go b.showAnimatedImageLoading(imageInfo, imageURL, loadingStop)
-
-	var decodedImg image.Image
-	var imgFormat string
 
 	go func() {
 		headResp, err := http.Head(imageURL)
@@ -139,49 +136,16 @@ func (b *Browser) showImagePreview(imageURL string) {
 
 		close(loadingStop)
 
-		decodedImg = img
-		imgFormat = format
-
 		b.app.QueueUpdateDraw(func() {
 			imgWidget.SetImage(img)
-			imageInfo.SetText(fmt.Sprintf("Image: %s | Format: %s | Size: %dx%d | s=scale r=reset q=close",
+			imageInfo.SetText(fmt.Sprintf("Image: %s | Format: %s | Size: %dx%d | q=close",
 				imageURL, format, img.Bounds().Dx(), img.Bounds().Dy()))
 		})
 	}()
 
-	scaleLevels := []int{0, -50, -75, -25, -100}
-	scaleIdx := 0
-	scaleLabels := []string{"auto", "50%", "75%", "25%", "100%"}
-
 	flex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
 			b.showImagesModal()
-			return nil
-		}
-		if event.Rune() == 's' {
-			scaleIdx = (scaleIdx + 1) % len(scaleLevels)
-			size := scaleLevels[scaleIdx]
-			label := scaleLabels[scaleIdx]
-			b.app.QueueUpdateDraw(func() {
-				imgWidget.SetSize(size, size)
-				if decodedImg != nil {
-					imageInfo.SetText(fmt.Sprintf("Image: %s | Format: %s | Size: %dx%d | Scale: %s | s=scale r=reset q=close",
-						imageURL, imgFormat, decodedImg.Bounds().Dx(), decodedImg.Bounds().Dy(), label))
-				} else {
-					imageInfo.SetText(fmt.Sprintf("Scale: %s (loading...)", label))
-				}
-			})
-			return nil
-		}
-		if event.Rune() == 'r' {
-			scaleIdx = 0
-			b.app.QueueUpdateDraw(func() {
-				imgWidget.SetSize(0, 0)
-				if decodedImg != nil {
-					imageInfo.SetText(fmt.Sprintf("Image: %s | Format: %s | Size: %dx%d | Scale: auto | s=scale r=reset q=close",
-						imageURL, imgFormat, decodedImg.Bounds().Dx(), decodedImg.Bounds().Dy()))
-				}
-			})
 			return nil
 		}
 		return event

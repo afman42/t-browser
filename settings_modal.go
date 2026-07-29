@@ -9,16 +9,13 @@ import (
 
 // showSettingsModal displays the settings page with two-column layout
 func (b *Browser) showSettingsModal() {
-	// Create the main flex container for two-column layout
 	flex := tview.NewFlex()
 
-	// Create left column with list of setting categories
 	leftList := tview.NewList()
 	leftList.SetBorder(true)
 	leftList.SetTitle("Settings Categories")
 	leftList.ShowSecondaryText(false)
 
-	// Add categories to the list
 	categories := b.getSettingCategories()
 	for i, category := range categories {
 		leftList.AddItem(fmt.Sprintf("%s %s", category.Icon, category.Name), "", rune('1'+i), func(cat SettingCategory) func() {
@@ -29,45 +26,40 @@ func (b *Browser) showSettingsModal() {
 		}(category))
 	}
 
-	// Add close button at the bottom
 	leftList.AddItem("Close", "Return to browser", 'c', func() {
 		b.closeSettingsModal()
 	})
 
-	// Create right column with form for settings
 	rightForm := tview.NewForm()
 	rightForm.SetBorder(true)
 	rightForm.SetTitle("Settings")
 
-	// Set up the flex layout with left and right columns
 	flex.SetDirection(tview.FlexColumn).
-		AddItem(leftList, 30, 1, true). // Left column (30% width, focusable)
-		AddItem(rightForm, 0, 4, false) // Right column (remaining width, not focusable initially)
+		AddItem(leftList, 30, 1, true).
+		AddItem(rightForm, 0, 4, false)
 
-	// Set initial focus to left list
 	b.app.SetFocus(leftList)
 
-	// Set up keyboard shortcuts
 	flex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyCtrlC, tcell.KeyEscape:
 			b.closeSettingsModal()
 			return nil
-		case tcell.KeyRune:
-			if event.Rune() == 'q' {
-				b.closeSettingsModal()
-				return nil
-			}
+		case tcell.KeyCtrlS:
+			b.saveSettings()
+			b.closeSettingsModal()
+			return nil
+		case tcell.KeyCtrlQ:
+			b.closeSettingsModal()
+			return nil
 		}
 		return event
 	})
 
-	// Store the current state
 	b.settingsActive = true
 	b.settingsChanged = false
 	b.rightColumnEmpty = false
 
-	// Set the layout as root and start
 	b.app.SetRoot(flex, true)
 }
 
@@ -153,8 +145,43 @@ func (b *Browser) updateRightColumn(flex *tview.Flex, leftList *tview.List, cate
 	})
 
 	rightForm.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyTAB && event.Modifiers() != tcell.ModShift {
-			b.app.SetFocus(leftList)
+		switch event.Key() {
+		case tcell.KeyTAB:
+			if event.Modifiers() != tcell.ModShift {
+				b.app.SetFocus(leftList)
+				return nil
+			}
+		case tcell.KeyUp:
+			if event.Modifiers()&tcell.ModCtrl != 0 {
+				formItem, btn := rightForm.GetFocusedItemIndex()
+				current := formItem
+				if formItem < 0 {
+					current = rightForm.GetFormItemCount() + btn
+				}
+				if current > 0 {
+					rightForm.SetFocus(current - 1)
+				}
+				return nil
+			}
+		case tcell.KeyDown:
+			if event.Modifiers()&tcell.ModCtrl != 0 {
+				formItem, btn := rightForm.GetFocusedItemIndex()
+				current := formItem
+				if formItem < 0 {
+					current = rightForm.GetFormItemCount() + btn
+				}
+				total := rightForm.GetFormItemCount() + rightForm.GetButtonCount()
+				if current < total-1 {
+					rightForm.SetFocus(current + 1)
+				}
+				return nil
+			}
+		case tcell.KeyCtrlS:
+			b.saveSettings()
+			b.closeSettingsModal()
+			return nil
+		case tcell.KeyCtrlQ:
+			b.closeSettingsModal()
 			return nil
 		}
 		return event

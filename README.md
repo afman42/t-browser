@@ -92,10 +92,10 @@ make clean          # Remove build artefacts
 | `Tab`               | Switch between categories / settings     |
 | `↑` / `↓` (left)    | Select a category                        |
 | `Enter` (category)  | Open the settings form on the right      |
-| `↑` / `↓` (right)   | Navigate between fields and buttons      |
-| `Enter` (Save)      | Save settings and close                  |
-| `Enter` (Cancel)    | Close without saving                     |
-| `q` / `Esc`         | Close settings                           |
+| `Ctrl+↑` / `Ctrl+↓` | Navigate between fields and buttons      |
+| `Ctrl+S`            | Save settings and close                  |
+| `Ctrl+Q`            | Close without saving                     |
+| `Esc`               | Close settings                           |
 
 ---
 
