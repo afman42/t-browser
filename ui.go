@@ -50,14 +50,14 @@ func (b *Browser) createUI() {
 			b.app.SetFocus(b.currentTab().textView)
 			return nil
 		}
-		if event.Key() == tcell.KeyRune && event.Rune() == 'p' {
+		if event.Key() == tcell.KeyCtrlP {
 			clipText, err := clipboard.ReadAll()
 			if err == nil {
 				b.urlInput.SetText(clipText)
 			}
 			return nil
 		}
-		if event.Key() == tcell.KeyRune && event.Rune() == 's' {
+		if event.Key() == tcell.KeyCtrlS {
 			b.showSettingsModal()
 			return nil
 		}
@@ -76,6 +76,22 @@ func (b *Browser) setupKeyBindings(tv *tview.TextView) {
 			b.client.CancelRequest()
 			return nil
 		case tcell.KeyEnter:
+			return nil
+		case tcell.KeyCtrlT:
+			b.newTab()
+			return nil
+		case tcell.KeyCtrlW:
+			b.closeTab()
+			return nil
+		case tcell.KeyCtrlL:
+			if len(tab.links) > 0 {
+				b.showLinksModal()
+			} else if len(tab.images) > 0 {
+				b.showImagesModal()
+			}
+			return nil
+		case tcell.KeyCtrlS:
+			b.showSettingsModal()
 			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
@@ -123,34 +139,10 @@ func (b *Browser) setupKeyBindings(tv *tview.TextView) {
 				tab.textView.ScrollTo(1000000, 0)
 				b.updateStatusBar()
 				return nil
-			case 'L':
-				if len(tab.links) > 0 {
-					b.showLinksModal()
-				} else if len(tab.images) > 0 {
-					b.showImagesModal()
-				}
-				return nil
 			case 'i':
 				if len(tab.images) > 0 {
 					b.showImagesModal()
 				}
-				return nil
-			case 'J':
-				currentRow, _ := tab.textView.GetScrollOffset()
-				tab.textView.ScrollTo(currentRow+10, 0)
-				b.updateStatusBar()
-				return nil
-			case 'K':
-				currentRow, _ := tab.textView.GetScrollOffset()
-				newRow := currentRow - 10
-				if newRow < 0 {
-					newRow = 0
-				}
-				tab.textView.ScrollTo(newRow, 0)
-				b.updateStatusBar()
-				return nil
-			case 's':
-				b.showSettingsModal()
 				return nil
 			case '?':
 				b.showHelp()
@@ -160,15 +152,6 @@ func (b *Browser) setupKeyBindings(tv *tview.TextView) {
 				return nil
 			case 'N':
 				b.navigateSearchMatch(-1)
-				return nil
-			case 't':
-				b.newTab()
-				return nil
-			case 'T':
-				b.closeTab()
-				return nil
-			case 'H':
-				b.prevTab()
 				return nil
 			case '\t':
 				b.app.SetFocus(b.urlInput)
@@ -197,49 +180,44 @@ func (b *Browser) showHelp() {
 	helpText := `Terminal Browser - Help & Usage
 
 Navigation:
-  j     - Scroll down content
-  k     - Scroll up content
+  j     - Scroll down
+  k     - Scroll up
   h     - Scroll left
   l     - Scroll right
-  g     - Go to top of page
-  G     - Go to bottom of page
+  g     - Go to top
+  G     - Go to bottom
   b     - Go back in history
   f     - Go forward in history
-  Esc   - Cancel loading the current page
-  s     - Open settings page
-  ?     - Show this help
-  q     - Quit browser
-  Ctrl+C - Quit browser
+  Esc   - Cancel page load
+  q     - Quit
+  Ctrl+C - Quit
 
 Links & Images:
-  L     - Show modal list of all links on page
-  i     - Show modal list of all images on page
-  Enter - Confirm selection in modal
+  Ctrl+L - Show links modal
+  i     - Show images modal
 
 Search:
-  /     - Real-time search with match highlighting
-  n     - Jump to next search match
-  N     - Jump to previous search match
+  /     - Start search
+  n     - Next match
+  N     - Previous match
 
 Tabs:
-  t     - Open a new tab
-  T     - Close current tab
-  H     - Switch to previous tab
-  Ctrl+Tab    - Switch to next tab
-  Ctrl+Shift+Tab - Switch to previous tab
+  Ctrl+T - New tab
+  Ctrl+W - Close tab
+  Ctrl+Tab    - Next tab
+  Ctrl+Shift+Tab - Previous tab
+
+Settings:
+  Ctrl+S - Open settings
 
 Interface:
-  Tab   - Switch between content view and URL input box
+  Tab   - Switch to URL input
+  ?     - Show this help
 
 URL Input:
   - Type a URL or search query and press Enter
-  - If it looks like a domain, https:// is added automatically
-  - Otherwise, it is sent to your search engine
   - Tab to autocomplete from history
-  - p to paste from clipboard
-
-Settings:
-  s     - Open settings page (two-column UI)
+  - Ctrl+P to paste from clipboard
 
 Press any key to close this help.`
 

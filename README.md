@@ -10,8 +10,8 @@ Browse the web from anywhere you can open a terminal.
 | Category            | What it does |
 |---------------------|-------------|
 | **Browse**          | Render web pages to plain text with smart content extraction (readability) |
-| **Navigate**        | `j`/`k` scroll, `b`/`f` history, `L`/`i` list links/images, `/` search, `n`/`N` next/prev match |
-| **Tabs**            | `t` new tab, `T` close tab, `H` prev tab, `Ctrl+Tab` next tab |
+| **Navigate**        | `j`/`k` scroll, `b`/`f` history, `Ctrl+L`/`i` list links/images, `/` search, `n`/`N` next/prev match |
+| **Tabs**            | `Ctrl+T` new tab, `Ctrl+W` close tab, `Ctrl+Tab` next, `Ctrl+Shift+Tab` prev |
 | **Images**          | Preview JPG, PNG, GIF, BMP, WebP as ASCII art in the terminal |
 | **Sessions**        | Save/restore history and tabs across restarts |
 | **Cookies**         | RFC 6265 compliant, SameSite enforcement, auto-save |
@@ -67,21 +67,22 @@ make clean          # Remove build artefacts
 | Key             | Action                          |
 |-----------------|---------------------------------|
 | `j` / `k`       | Scroll down / up (10 lines)    |
+| `h` / `l`       | Scroll left / right            |
+| `g` / `G`       | Go to top / bottom of page     |
 | `b` / `f`       | Go back / forward in history   |
-| `L`             | List all links on the page      |
-| `i`             | List all images on the page     |
 | `/`             | Real-time search with highlights |
 | `n` / `N`       | Next / previous search match   |
-| `s`             | Open settings (two-column UI)  |
+| `i`             | List all images on the page     |
 | `?`             | Show help overlay               |
 | `Esc`           | Cancel current page load        |
 | `Tab`           | Switch between content & URL bar |
-| `p`             | Paste URL from clipboard       |
-| `t`             | Open a new tab                  |
-| `T`             | Close current tab               |
-| `H`             | Switch to previous tab          |
+| `Ctrl+L`        | List all links on the page      |
+| `Ctrl+T`        | Open a new tab                  |
+| `Ctrl+W`        | Close current tab               |
 | `Ctrl+Tab`      | Switch to next tab              |
 | `Ctrl+Shift+Tab`| Switch to previous tab          |
+| `Ctrl+S`        | Open settings                   |
+| `Ctrl+P`        | Paste URL from clipboard        |
 | `q` / `Ctrl+C`  | Quit                           |
 
 ### Settings Page
