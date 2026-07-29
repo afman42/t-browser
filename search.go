@@ -120,12 +120,6 @@ func (b *Browser) startSearch() {
 				inputField.SetText(newText)
 			}
 			return nil
-		case tcell.KeyRune:
-			if event.Rune() == 'i' {
-				tab.searchCaseSensitive = !tab.searchCaseSensitive
-				runSearch(inputField.GetText())
-				return nil
-			}
 		}
 		return event
 	})
@@ -150,6 +144,11 @@ func (b *Browser) startSearch() {
 				return nil
 			case 'q':
 				b.restoreFromSearch()
+				return nil
+			case 'i':
+				tab.searchCaseSensitive = !tab.searchCaseSensitive
+				runSearch(inputField.GetText())
+				b.app.SetFocus(inputField)
 				return nil
 			}
 		case tcell.KeyTAB:
@@ -194,9 +193,9 @@ func (b *Browser) startSearch() {
 func (b *Browser) searchLabel() string {
 	tab := b.currentTab()
 	if tab.searchCaseSensitive {
-		return "Search (case-sensitive, i to toggle)"
+		return "Search (case-sensitive, Tab+i to toggle)"
 	}
-	return "Search (case-insensitive, i to toggle)"
+	return "Search (case-insensitive, Tab+i to toggle)"
 }
 
 func (b *Browser) saveSearchHistory(tab *Tab) {

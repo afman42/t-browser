@@ -200,6 +200,8 @@ Search:
   /     - Start search
   n     - Next match
   N     - Previous match
+  (in search panel: j/k navigate results, i toggles case,
+   Up/Down cycles search history, Enter jumps to match)
 
 Tabs:
   Ctrl+T - New tab
