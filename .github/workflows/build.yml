@@ -6,14 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-# A newer push to the same ref makes the in-flight run obsolete.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-
 env:
   # Single source of truth. Must stay >= the go directive in go.mod, and the
   # patch level matters: 1.25.13 carries the crypto/x509, crypto/tls, net/url
@@ -68,7 +60,7 @@ jobs:
           GOOS=darwin go vet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.13.2
           args: --timeout=10m
