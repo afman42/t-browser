@@ -57,6 +57,10 @@ func (b *Browser) LoadSession(filename string) error {
 	b.currentTab().currentURL = session.CurrentURL
 	b.currentTab().searchTerm = session.SearchTerm
 	b.forceUA = session.ForceUA
+	// Apply the restored UA to the live client; b.forceUA alone is never read.
+	if b.client != nil && session.ForceUA != "" {
+		b.client.SetUserAgent(session.ForceUA)
+	}
 
 	return nil
 }

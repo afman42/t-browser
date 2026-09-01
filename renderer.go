@@ -13,10 +13,10 @@ import (
 	"github.com/go-shiori/go-readability"
 )
 
-func (b *Browser) renderPage(htmlContent, rawURL string) {
+func (b *Browser) renderPage(tab *Tab, htmlContent, rawURL string) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		b.renderPageFallback(htmlContent)
+		b.renderPageFallback(tab, htmlContent)
 		return
 	}
 
@@ -26,8 +26,25 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	}
 
 	if refreshURL, delay, found := detectMetaRefresh(processedHTML); found {
+		targetRef, parseErr := url.Parse(refreshURL)
+		if parseErr != nil {
+			return
+		}
+		target := parsedURL.ResolveReference(targetRef).String()
+		// Loop guard: never refresh to the URL we are already on, otherwise a
+		// self-refreshing page re-navigates forever.  Compare structurally
+		// (fragment stripped, scheme/host case-folded): "#top", "./" and
+		// case-only variants of the same page must not loop either.
+		if target == "" || samePageURL(target, rawURL) {
+			return
+		}
+		if delay < 0 {
+			delay = 0
+		}
+		if delay > 60 {
+			delay = 60
+		}
 		ctx, cancel := context.WithCancel(context.Background())
-		tab := b.currentTab()
 		tab.metaRefreshCancel = cancel
 		go func() {
 			select {
@@ -35,7 +52,7 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 				return
 			case <-time.After(time.Duration(delay) * time.Second):
 				b.app.QueueUpdateDraw(func() {
-					b.NavigateTo(refreshURL)
+					b.navigateTab(tab, target)
 				})
 			}
 		}()
@@ -46,7 +63,7 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(processedHTML))
 	if err != nil {
-		b.renderPageFallback(htmlContent)
+		b.renderPageFallback(tab, htmlContent)
 		return
 	}
 
@@ -77,7 +94,7 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 
 	article, err := readability.FromReader(strings.NewReader(processedHTML), parsedURL)
 	if err != nil {
-		b.renderPageFallback(htmlContent)
+		b.renderPageFallback(tab, htmlContent)
 		return
 	}
 
@@ -88,15 +105,16 @@ func (b *Browser) renderPage(htmlContent, rawURL string) {
 	}
 
 	cleanedContent := cleanExcessiveWhitespace(article.TextContent)
+	// Match links against the unescaped content: sanitizeForTview escapes
+	// [ ] * _ ` which would otherwise hide their link text from the matcher.
 	sanitizedContent := b.sanitizeForTview(cleanedContent)
-	visibleLinks := b.extractVisibleLinks(sanitizedContent, allLinks)
+	visibleLinks := b.extractVisibleLinks(cleanedContent, allLinks)
 	result.WriteString(sanitizedContent)
 
 	if article.Image != "" {
 		result.WriteString(fmt.Sprintf("\n[Image: %s]", article.Image))
 	}
 
-	tab := b.currentTab()
 	tab.links = visibleLinks
 	tab.images = images
 	tab.currentLinkIndex = -1
@@ -178,6 +196,23 @@ func resolveURL(rawURL string, base *url.URL) string {
 
 var metaRefreshRegex = regexp.MustCompile(`(?i)<meta\s+http-equiv=["']?refresh["']?\s+content=["'](\d+)\s*;\s*url=([^"']+)["']`)
 
+// samePageURL reports whether two URLs address the same page, ignoring the
+// fragment and case-folding scheme+host.  Path and query are compared exactly.
+// Used to stop self-refresh loops where the refresh target differs from the
+// current URL only in "#top", "./" or host case.
+func samePageURL(a, b string) bool {
+	ua, ea := url.Parse(a)
+	ub, eb := url.Parse(b)
+	if ea != nil || eb != nil {
+		return a == b
+	}
+	ua.Fragment, ub.Fragment = "", ""
+	return strings.EqualFold(ua.Scheme, ub.Scheme) &&
+		strings.EqualFold(ua.Host, ub.Host) &&
+		ua.Path == ub.Path &&
+		ua.RawQuery == ub.RawQuery
+}
+
 func detectMetaRefresh(htmlContent string) (string, int, bool) {
 	m := metaRefreshRegex.FindStringSubmatch(htmlContent)
 	if m == nil {
@@ -194,7 +229,7 @@ func detectMetaRefresh(htmlContent string) (string, int, bool) {
 	return targetURL, delay, true
 }
 
-func (b *Browser) renderPageFallback(htmlContent string) {
+func (b *Browser) renderPageFallback(tab *Tab, htmlContent string) {
 	processedHTML := htmlContent
 	if b.config != nil && b.config.EnableContentSecurity {
 		processedHTML = sanitizeHTML(processedHTML)
@@ -202,12 +237,12 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(processedHTML))
 	if err != nil {
-		b.displayError(fmt.Sprintf("Error parsing HTML: %v", err))
+		b.displayError(tab, fmt.Sprintf("Error parsing HTML: %v", err))
 		return
 	}
 
 	var links []Link
-	currentURLParsed, _ := url.Parse(b.currentTab().currentURL)
+	currentURLParsed, _ := url.Parse(tab.currentURL)
 
 	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
@@ -244,7 +279,6 @@ func (b *Browser) renderPageFallback(htmlContent string) {
 	rawContent := result.String()
 	visibleLinks := b.extractVisibleLinks(rawContent, links)
 
-	tab := b.currentTab()
 	tab.links = visibleLinks
 	tab.images = images
 	tab.currentLinkIndex = -1

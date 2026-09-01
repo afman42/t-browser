@@ -23,14 +23,17 @@ var (
 	// appletTag matches <applet> blocks.
 	appletTag = regexp.MustCompile(`(?is)<applet[\s>].*?</applet>`)
 
-	// eventHandler matches on*="..." and on*='...' attributes.
-	eventHandler = regexp.MustCompile(`(?i)\s+on\w+\s*=\s*"[^"]*"|` +
-		`\s+on\w+\s*=\s*'[^']*'|` +
-		`\s+on\w+\s*=\s*[^\s"'>]+`)
+	// eventHandler matches on*="..." and on*='...' attributes, including the
+	// no-whitespace form used by svg payloads (`<svg/onload=...>`).
+	eventHandler = regexp.MustCompile(`(?i)(?:[\s/>]|^)on\w+\s*=\s*"[^"]*"|` +
+		`(?:[\s/>]|^)on\w+\s*=\s*'[^']*'|` +
+		`(?:[\s/>]|^)on\w+\s*=\s*[^\s"'>]+`)
 
-	// javascriptHref matches href="javascript:..." in anchor and area tags.
+	// javascriptHref matches href="javascript:..." in anchor and area tags,
+	// quoted or unquoted.
 	javascriptHref = regexp.MustCompile(`(?i)\s+(?:href|action|formaction)\s*=\s*"(?:javascript|vbscript):[^"]*"|` +
-		`\s+(?:href|action|formaction)\s*=\s*'(?:javascript|vbscript):[^']*'`)
+		`\s+(?:href|action|formaction)\s*=\s*'(?:javascript|vbscript):[^']*'|` +
+		`\s+(?:href|action|formaction)\s*=\s*(?:javascript|vbscript):[^\s"'>]+`)
 
 	// javascriptSrc matches src="javascript:..."
 	javascriptSrc = regexp.MustCompile(`(?i)\s+src\s*=\s*"(?:javascript|vbscript):[^"]*"|` +
@@ -61,32 +64,37 @@ func sanitizeHTMLWithReport(htmlContent string) (string, SanitizeReport) {
 	report.JavascriptURLsRemoved = len(javascriptHref.FindAllString(htmlContent, -1)) +
 		len(javascriptSrc.FindAllString(htmlContent, -1))
 
-	// Order matters: strip full elements before attributes to avoid
-	// leaving partial tags behind.
+	// Order matters: strip full elements before attributes (see
+	// applySanitizePasses).
+	result := applySanitizePasses(htmlContent)
+
+	return result, report
+}
+
+// applySanitizePasses runs the strip passes in dependency order: full
+// elements first so no partial tags survive, then event handlers, then
+// javascript:/vbscript: URLs, then empty-anchor cleanup.
+func applySanitizePasses(htmlContent string) string {
 	result := scriptTag.ReplaceAllString(htmlContent, "")
 	result = iframeTag.ReplaceAllString(result, "")
 	result = objectTag.ReplaceAllString(result, "")
 	result = appletTag.ReplaceAllString(result, "")
 
-	// Strip event handler attributes.
 	result = eventHandler.ReplaceAllString(result, "")
-
-	// Strip javascript: / vbscript: URLs in href, action, formaction.
 	result = javascriptHref.ReplaceAllString(result, "")
 	result = javascriptSrc.ReplaceAllString(result, "")
-
-	// Clean up any empty anchor tags left behind.
-	result = strings.ReplaceAll(result, "<a></a>", "")
-
-	return result, report
+	return strings.ReplaceAll(result, "<a></a>", "")
 }
 
 // sanitizeHTML strips dangerous elements and attributes from HTML content.
 // It removes <script>, <iframe>, <object>, <embed>, <applet> tags,
 // event handler attributes (onclick, onload, etc.), and javascript: URLs.
+// The production path skips report counting (six extra full scans per page).
 func sanitizeHTML(htmlContent string) string {
-	cleaned, _ := sanitizeHTMLWithReport(htmlContent)
-	return cleaned
+	if htmlContent == "" {
+		return ""
+	}
+	return applySanitizePasses(htmlContent)
 }
 
 // blockExternalResources removes or neutralises references to external

@@ -75,6 +75,14 @@ func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 		if boolVal, ok := value.(bool); ok {
 			b.config.EnforceSameSite = boolVal
 		}
+	case "enable_pinning":
+		if boolVal, ok := value.(bool); ok {
+			b.config.EnablePinning = boolVal
+		}
+	case "enable_hsts":
+		if boolVal, ok := value.(bool); ok {
+			b.config.EnableHSTS = boolVal
+		}
 	case "strip_tracking_params":
 		if boolVal, ok := value.(bool); ok {
 			b.config.StripTrackingParams = boolVal
@@ -95,6 +103,12 @@ func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 		if strVal, ok := value.(string); ok {
 			b.config.SessionFile = strVal
 		}
+	}
+
+	// Push client-bound settings into the live HTTP client so password/proxy/
+	// timeout/redirect/retry/pinning/HSTS changes take effect immediately.
+	if b.client != nil {
+		b.client.applyConfig()
 	}
 }
 

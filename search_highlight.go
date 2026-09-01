@@ -181,14 +181,16 @@ func currentPosAtLineStart(text string, lineIndex int) int {
 	return pos
 }
 
+// tviewFmtRegex matches tview colour/format tags like [red] and [::b].
+var tviewFmtRegex = regexp.MustCompile(`\[[^]]*\]`)
+
+// removeTviewFormatting strips tview formatting tags from text.  Combining
+// marks are NOT stripped here: the previous wholesale removal of the Indic
+// script blocks (U+0900–U+0DFF and friends) deleted entire Devanagari,
+// Tamil, Bengali, etc. alphabets from search results.  removeUnwantedCharsFromDisplay
+// handles mark removal with proper rune classes when deduplication needs it.
 func removeTviewFormatting(text string) string {
-	re := regexp.MustCompile(`\[[^]]*\]`)
-	text = re.ReplaceAllString(text, "")
-
-	reUnicode := regexp.MustCompile(`[\x{0900}-\x{0DFF}\x{1CD0}-\x{1CFF}\x{A8E0}-\x{A8FF}\x{0300}-\x{036F}\x{1AB0}-\x{1AFF}\x{1DC0}-\x{1DFF}\x{20D0}-\x{20FF}\x{FE20}-\x{FE2F}]`)
-	text = reUnicode.ReplaceAllString(text, "")
-
-	return text
+	return tviewFmtRegex.ReplaceAllString(text, "")
 }
 
 func removeUnwantedCharsFromDisplay(text string) string {

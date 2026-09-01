@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -285,19 +286,19 @@ func TestFetchPageRetriesWithRetryAfterHeaderThenSucceeds(t *testing.T) {
 	}
 }
 
-func TestFetchPageRetriesUntilMaxThenReturnsBody(t *testing.T) {
-	// Always 503: after maxRetries attempts it should fall through and return
-	// the 503 response body (a reasonable "show the error page" behaviour).
+func TestFetchPageRetriesUntilMaxThenReturnsError(t *testing.T) {
+	// Always 503: after maxRetries attempts the fetch surfaces a server
+	// error instead of rendering the 5xx body as page content.
 	client, calls := newRetryMockClient(t, 2, func(call int, _ *http.Request) (int, string) {
 		return 503, "service unavailable"
 	})
 
-	content, err := client.FetchPage("http://mock.test/")
-	if err != nil {
-		t.Fatalf("expected 503 body returned after retries, got error: %v", err)
+	_, err := client.FetchPage("http://mock.test/")
+	if err == nil {
+		t.Fatal("expected a server error after retries are exhausted")
 	}
-	if content != "service unavailable" {
-		t.Errorf("expected 'service unavailable', got %q", content)
+	if !strings.Contains(err.Error(), "503") {
+		t.Errorf("expected 503 in error message, got %q", err.Error())
 	}
 	// 1 initial + 2 retries = 3 calls.
 	if got := atomic.LoadInt32(calls); got != 3 {
@@ -310,12 +311,9 @@ func TestFetchPageMaxRetriesZeroDisablesRetry(t *testing.T) {
 		return 503, "down"
 	})
 
-	content, err := client.FetchPage("http://mock.test/")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if content != "down" {
-		t.Errorf("expected 'down', got %q", content)
+	_, err := client.FetchPage("http://mock.test/")
+	if err == nil {
+		t.Fatal("expected a server error with retries disabled")
 	}
 	if got := atomic.LoadInt32(calls); got != 1 {
 		t.Errorf("maxRetries=0 should perform a single call, got %d", got)

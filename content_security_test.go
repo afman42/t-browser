@@ -72,6 +72,8 @@ func TestSanitizeHTMLRemovesEventHandlers(t *testing.T) {
 		{"onload", `<img src="x.png" onload="alert(1)">`},
 		{"onerror", `<img src="x.png" onerror="evil()">`},
 		{"onmouseover", `<div onmouseover="doEvil()">hover</div>`},
+		{"svg onload no space", `<svg/onload=alert(1)>`},
+		{"unquoted onerror", `<img src=x onerror=evil()>`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,6 +95,7 @@ func TestSanitizeHTMLRemovesJavascriptHref(t *testing.T) {
 		{"href vbscript", `<a href="vbscript:msgbox(1)">link</a>`},
 		{"action javascript", `<form action="javascript:void(0)"></form>`},
 		{"formaction", `<button formaction="javascript:doEvil()">submit</button>`},
+		{"unquoted href", `<a href=javascript:alert(1)>link</a>`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

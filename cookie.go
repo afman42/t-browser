@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -65,6 +66,22 @@ func (c *Cookie) Matches(requestURL *url.URL, enforceSameSite bool) bool {
 	}
 
 	return true
+}
+
+// validCookieDomain reports whether the server-set cookie domain is an exact
+// match for the host or a parent-domain suffix of it (RFC 6265 §5.3).  A
+// cookie claiming a domain outside the setting host's control is rejected;
+// the caller falls back to a host-only cookie, which is what real browsers do.
+func validCookieDomain(host, domain string) bool {
+	host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	domain = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(domain), "."))
+	if domain == "" {
+		return true
+	}
+	return host == domain || strings.HasSuffix(host, "."+domain)
 }
 
 // isSameSite returns true when the request host is the same site as the
@@ -144,6 +161,8 @@ func matchesPath(requestPath, cookiePath string) bool {
 
 // loadCookiesFromFile loads cookies from persistent storage
 func (c *HTTPClient) loadCookiesFromFile() {
+	c.cookieMu.Lock()
+	defer c.cookieMu.Unlock()
 	var cookieFile string
 
 	if c.config != nil {
@@ -184,6 +203,7 @@ func (c *HTTPClient) loadCookiesFromFile() {
 
 // saveCookiesToFile saves cookies to persistent storage
 func (c *HTTPClient) saveCookiesToFile() {
+	c.cleanupExpiredCookies()
 	var cookieFile string
 
 	if c.config != nil {
@@ -200,15 +220,13 @@ func (c *HTTPClient) saveCookiesToFile() {
 		}
 	}
 
-	// Clean up expired cookies before saving
-	c.cleanupExpiredCookies()
-
+	c.cookieMu.RLock()
 	var cookies []*Cookie
 	for _, cookie := range c.cookies {
 		cookies = append(cookies, cookie)
 	}
-
 	data, err := json.MarshalIndent(cookies, "", "  ")
+	c.cookieMu.RUnlock()
 	if err != nil {
 		return
 	}
@@ -218,6 +236,8 @@ func (c *HTTPClient) saveCookiesToFile() {
 
 // cleanupExpiredCookies removes expired cookies from the storage
 func (c *HTTPClient) cleanupExpiredCookies() {
+	c.cookieMu.Lock()
+	defer c.cookieMu.Unlock()
 	now := time.Now()
 	for key, cookie := range c.cookies {
 		if !cookie.Expires.IsZero() && now.After(cookie.Expires) {
@@ -226,8 +246,17 @@ func (c *HTTPClient) cleanupExpiredCookies() {
 	}
 }
 
-// addCookie adds a cookie to the storage with proper validation
+// addCookie adds a cookie to the storage with proper validation.
 func (c *HTTPClient) addCookie(httpCookie *http.Cookie, host string) {
+	c.cookieMu.Lock()
+	addCookieLocked(c, httpCookie, host)
+	c.cookieMu.Unlock()
+	c.saveCookiesToFile()
+}
+
+// addCookieLocked adds a validated cookie to the storage; the caller must
+// hold c.cookieMu.
+func addCookieLocked(c *HTTPClient, httpCookie *http.Cookie, host string) {
 	// Convert http.SameSite enum to our string representation.
 	sameSiteStr := ""
 	switch httpCookie.SameSite {
@@ -267,6 +296,11 @@ func (c *HTTPClient) addCookie(httpCookie *http.Cookie, host string) {
 		cookie.Domain = host
 	}
 
+	// Reject domains outside the setting host's control (host-only fallback).
+	if !validCookieDomain(host, cookie.Domain) {
+		cookie.Domain = host
+	}
+
 	// If no path was specified, set it to the directory of the request path
 	if cookie.Path == "" {
 		cookie.Path = "/"
@@ -275,7 +309,4 @@ func (c *HTTPClient) addCookie(httpCookie *http.Cookie, host string) {
 	// Store the cookie in the map
 	key := cookie.Domain + "_" + cookie.Name
 	c.cookies[key] = cookie
-
-	// Save to persistent storage
-	c.saveCookiesToFile()
 }

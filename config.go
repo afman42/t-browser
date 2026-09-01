@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -117,8 +118,10 @@ func GetConfigDir() string {
 
 // GetLinuxConfigPath returns the config directory for Linux systems
 func GetLinuxConfigPath() string {
-	// Use XDG config directory or home directory
-	configHome := viper.GetString("XDG_CONFIG_HOME")
+	// Use XDG config directory or home directory.  Read the env var directly:
+	// viper does not bind environment variables, so viper.GetString could
+	// never see XDG_CONFIG_HOME.
+	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {
 		home, _ := getHomeDir()
 		configHome = filepath.Join(home, ".config")
@@ -270,6 +273,9 @@ func GetCookieFilePath(configDir string) string {
 		os.MkdirAll(cookiesDir, 0755)
 	}
 
+	// Timestamped saves accumulate forever otherwise; keep only the newest.
+	pruneOldFiles(cookiesDir, "cookies_", ".json", 10)
+
 	// Create a filename with timestamp
 	filename := fmt.Sprintf("cookies_%s.json", GetTimestamp())
 	return filepath.Join(cookiesDir, filename)
@@ -283,9 +289,42 @@ func GetSessionFilePath(configDir string) string {
 		os.MkdirAll(sessionsDir, 0755)
 	}
 
+	// Timestamped saves accumulate forever otherwise; keep only the newest.
+	pruneOldFiles(sessionsDir, "session_", ".json", 10)
+
 	// Create a filename with timestamp
 	filename := fmt.Sprintf("session_%s.json", GetTimestamp())
 	return filepath.Join(sessionsDir, filename)
+}
+
+// pruneOldFiles removes all but the `keep` most recently modified files in
+// dir that match prefix/suffix.  Failure to stat a file is not fatal.
+func pruneOldFiles(dir, prefix, suffix string, keep int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	var candidates []string
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() && strings.HasPrefix(name, prefix) && strings.HasSuffix(name, suffix) {
+			candidates = append(candidates, filepath.Join(dir, name))
+		}
+	}
+	if len(candidates) <= keep {
+		return
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		si, err1 := os.Stat(candidates[i])
+		sj, err2 := os.Stat(candidates[j])
+		if err1 != nil || err2 != nil {
+			return false
+		}
+		return si.ModTime().After(sj.ModTime())
+	})
+	for _, f := range candidates[keep:] {
+		os.Remove(f)
+	}
 }
 
 // GetLatestCookieFile returns the path to the most recent cookie file

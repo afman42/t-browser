@@ -120,14 +120,12 @@ func (b *Browser) showLinksModalPage(page int) {
 			for i := startIndex; i < endIndex; i++ {
 				l := filtered[i]
 				linkText := l.Text
-				isImage := b.isImageURL(l.URL)
-				hasRealExt := b.hasRealImageExtension(l.URL)
+				// Extension-only detection.  Content-type probing would fire a
+				// synchronous network HEAD per link on the UI thread and leak
+				// every destination URL to its server.
+				isImage := b.hasRealImageExtension(l.URL)
 				if isImage {
-					if hasRealExt {
-						linkText += " [IMAGE*]"
-					} else {
-						linkText += " [IMAGE]"
-					}
+					linkText += " [IMAGE*]"
 				}
 				urlToShow := l.URL
 				if len(urlToShow) > 70 {

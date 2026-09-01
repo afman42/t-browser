@@ -59,15 +59,13 @@ func (b *Browser) isLightTheme() bool {
 // ensureContentVisibilityForTheme ensures content is readable in the current theme.
 func (b *Browser) ensureContentVisibilityForTheme(content string) string {
 	if b.isLightTheme() {
-		content = strings.ReplaceAll(content, "[::b]", "[black::b]")
-		content = strings.ReplaceAll(content, "[::i]", "[black::i]")
-		content = strings.ReplaceAll(content, "[::u]", "[black::u]")
-	} else {
-		content = strings.ReplaceAll(content, "[::b]", "[white::b]")
-		content = strings.ReplaceAll(content, "[::i]", "[white::i]")
-		content = strings.ReplaceAll(content, "[::u]", "[white::u]")
+		// Coloured heading/quote codes read poorly on white; pin them to black.
+		for _, col := range []string{"cyan", "yellow", "green", "blue", "magenta", "red"} {
+			content = strings.ReplaceAll(content, "["+col+"::b]", "[black::b]")
+		}
+		return strings.ReplaceAll(content, "[::u]", "[black::u]")
 	}
-	return content
+	return strings.ReplaceAll(content, "[::u]", "[white::u]")
 }
 
 // ApplyTheme applies the selected theme to the application.

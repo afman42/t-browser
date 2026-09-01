@@ -2,8 +2,51 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+// TestSettingsApplyConcurrentWithFetch hammers applyConfig/SetProxy/
+// SetUserAgent from one goroutine while fetches snapshot live config from
+// another.  Before the confMu clone-swap this was a data race on the shared
+// http.Client/Transport fields; run with -race.
+func TestSettingsApplyConcurrentWithFetch(t *testing.T) {
+	cfg := GetDefaultConfig()
+	client := NewHTTPClient(&cfg)
+	b := &Browser{client: client, config: &cfg}
+	client.client.Transport = &mockTransport{
+		pathMatches: map[string]mockResponse{
+			"/": {statusCode: 200, headers: map[string]string{"Content-Type": "text/html; charset=utf-8"}, body: body("ok")},
+		},
+	}
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				client.FetchPage("http://mock.test/")
+			}
+		}
+	}()
+	for range 300 {
+		b.updateSettingValue("request_timeout", 9)
+		b.updateSettingValue("max_retries", 7)
+		b.updateSettingValue("user_agent", "race-agent/1.0")
+		b.updateSettingValue("proxy", "http://proxy.example:8080")
+		b.updateSettingValue("proxy", "")
+		b.updateSettingValue("enable_pinning", true)
+		b.updateSettingValue("enable_pinning", false)
+	}
+	close(done)
+	wg.Wait()
+}
 
 func TestGetSettingCategories(t *testing.T) {
 	cfg := GetDefaultConfig()
@@ -136,6 +179,47 @@ func TestGetSettingsForCategoryPrivacy(t *testing.T) {
 	}
 	if settings[3].ID != "strip_tracking_params" {
 		t.Errorf("expected 'strip_tracking_params', got %q", settings[3].ID)
+	}
+}
+
+func TestSettingsApplyToLiveClient(t *testing.T) {
+	cfg := GetDefaultConfig()
+	client := NewHTTPClient(&cfg)
+	b := &Browser{client: client, config: &cfg}
+
+	b.updateSettingValue("user_agent", "live-agent/1.0")
+	if client.forceUA != "live-agent/1.0" {
+		t.Errorf("client.forceUA = %q, want live-agent/1.0", client.forceUA)
+	}
+
+	b.updateSettingValue("request_timeout", 9)
+	if client.client.Timeout != 9*time.Second {
+		t.Errorf("client Timeout = %v, want 9s", client.client.Timeout)
+	}
+
+	b.updateSettingValue("max_retries", 7)
+	if client.maxRetries != 7 {
+		t.Errorf("client.maxRetries = %d, want 7", client.maxRetries)
+	}
+
+	b.updateSettingValue("proxy", "http://proxy.example:8080")
+	if client.transport == nil || client.transport.Proxy == nil {
+		t.Error("expected proxy applied to the live transport")
+	}
+	b.updateSettingValue("proxy", "")
+	if client.transport == nil || client.transport.Proxy != nil {
+		t.Error("expected proxy cleared when set to empty")
+	}
+
+	// enable_pinning / enable_hsts previously had no switch cases at all —
+	// toggling them did nothing.
+	b.updateSettingValue("enable_pinning", true)
+	if !cfg.EnablePinning {
+		t.Error("EnablePinning not persisted to config")
+	}
+	b.updateSettingValue("enable_hsts", true)
+	if !cfg.EnableHSTS {
+		t.Error("EnableHSTS not persisted to config")
 	}
 }
 

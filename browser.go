@@ -123,12 +123,6 @@ func (b *Browser) Run() error {
 		if sessionFile != "" {
 			b.LoadSession(sessionFile)
 		}
-	} else {
-		sessionFile := "t-browser-session.json"
-		if b.config != nil && b.config.SessionFile != "" {
-			sessionFile = b.config.SessionFile
-		}
-		b.LoadSession(sessionFile)
 	}
 
 	b.ApplyTheme()
@@ -188,9 +182,6 @@ func (b *Browser) Run() error {
 		configDir := GetConfigDir()
 		sessionFile := GetSessionFilePath(configDir)
 		b.SaveSession(sessionFile)
-	}
-	if b.config == nil {
-		b.SaveSession("t-browser-session.json")
 	}
 
 	return nil

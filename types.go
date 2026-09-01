@@ -81,7 +81,7 @@ type Browser struct {
 	toastMu       sync.Mutex
 	toastStop     chan struct{}
 	toastDone     chan struct{} // closed when the active toast goroutine exits
-	lastToastText string
+	lastToastText string        // written synchronously for test observability
 }
 
 func (b *Browser) currentTab() *Tab {

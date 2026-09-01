@@ -283,13 +283,15 @@ func (t *hstsTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // saveHSTSStore persists the HSTS store to disk, if the store and config are
-// both available. Errors are non-fatal (logged to stderr).
-func (c *HTTPClient) saveHSTSStore() {
-	if c.hstsStore == nil || c.config == nil {
+// both available. Errors are non-fatal (logged to stderr).  The store is
+// passed in from the request's snapshot so a concurrent config change cannot
+// race the field read.
+func (c *HTTPClient) saveHSTSStore(store *HSTSStore) {
+	if store == nil || c.config == nil {
 		return
 	}
 	configDir := GetConfigDir()
-	if err := SaveHSTS(c.hstsStore, GetHSTSFilePath(configDir)); err != nil {
+	if err := SaveHSTS(store, GetHSTSFilePath(configDir)); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to persist HSTS policies: %v\n", err)
 	}
 }

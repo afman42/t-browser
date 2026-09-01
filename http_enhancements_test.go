@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/flate"
 	"compress/zlib"
 	"fmt"
 	"io"
@@ -58,6 +59,26 @@ func TestFetchPageHandlesDeflate(t *testing.T) {
 	}
 	if !strings.Contains(content, "deflated content") {
 		t.Errorf("expected 'deflated content', got: %s", content)
+	}
+}
+
+func TestFetchPageHandlesRawDeflate(t *testing.T) {
+	// Some servers send raw DEFLATE (RFC 1951) without a zlib wrapper; the
+	// client must fall back to a plain inflater.
+	var buf bytes.Buffer
+	fw, _ := flate.NewWriter(&buf, flate.DefaultCompression)
+	fw.Write([]byte("<html><body>raw deflate content</body></html>"))
+	fw.Close()
+
+	client := newMockClient(map[string]mockResponse{
+		"/": {200, map[string]string{"Content-Type": "text/html; charset=utf-8", "Content-Encoding": "deflate"}, buf.Bytes()},
+	})
+	content, err := client.FetchPage("http://mock.test/")
+	if err != nil {
+		t.Fatalf("FetchPage failed: %v", err)
+	}
+	if !strings.Contains(content, "raw deflate content") {
+		t.Errorf("expected 'raw deflate content', got: %s", content)
 	}
 }
 
@@ -269,32 +290,26 @@ func TestFetchPageRedirectForwardsCookies(t *testing.T) {
 	}
 }
 
-func TestFetchPageProtocolRelativeRedirect(t *testing.T) {
-	mt := &mockTransport{
-		pathMatches: map[string]mockResponse{
-			"/start": {302, map[string]string{
-				"Location":     "//mock.test/final",
-				"Content-Type": "text/html; charset=utf-8",
-			}, nil},
-			"/final": {200, map[string]string{"Content-Type": "text/html; charset=utf-8"}, body("protocol-relative redirect")},
-		},
-	}
-	client := NewHTTPClient(nil)
-	client.client.Transport = mt
-	client.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	client.client.Timeout = 5 * time.Second
+func TestFetchPageProtocolRelativeRedirectRejected(t *testing.T) {
+	// Protocol-relative ("//host") redirects are cross-host and must be
+	// rejected at the redirect check — never followed to an arbitrary host.
+	client := newMockClient(map[string]mockResponse{
+		"/start": {302, map[string]string{
+			"Location":     "//mock.test/final",
+			"Content-Type": "text/html; charset=utf-8",
+		}, nil},
+	})
 
-	content, err := client.FetchPage("http://mock.test/start")
-	if err != nil {
-		t.Fatalf("FetchPage failed: %v", err)
+	_, err := client.FetchPage("http://mock.test/start")
+	if err == nil {
+		t.Fatal("expected protocol-relative redirect location to be rejected")
 	}
-	if !strings.Contains(content, "protocol-relative redirect") {
-		t.Errorf("expected 'protocol-relative redirect', got: %s", content)
+	mt, ok := client.client.Transport.(*mockTransport)
+	if !ok {
+		t.Fatal("expected mockTransport")
 	}
-	if mt.requestCount != 2 {
-		t.Errorf("expected 2 requests, got %d", mt.requestCount)
+	if mt.requestCount != 1 {
+		t.Errorf("expected 1 request (redirect target never fetched), got %d", mt.requestCount)
 	}
 }
 

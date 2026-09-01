@@ -18,9 +18,8 @@ import (
 
 func TestSaveHSTSStoreNilStore(t *testing.T) {
 	client := NewHTTPClient(nil)
-	client.hstsStore = nil
 	// Should not panic when hstsStore is nil.
-	client.saveHSTSStore()
+	client.saveHSTSStore(nil)
 }
 
 func TestSaveHSTSStoreNilConfig(t *testing.T) {
@@ -30,7 +29,7 @@ func TestSaveHSTSStoreNilConfig(t *testing.T) {
 		config:    nil,
 	}
 	// Should not panic when config is nil.
-	client.saveHSTSStore()
+	client.saveHSTSStore(client.hstsStore)
 }
 
 func TestSaveHSTSStorePersists(t *testing.T) {
@@ -63,7 +62,7 @@ func TestSaveHSTSStoreViaClient(t *testing.T) {
 	// saveHSTSStore is a no-op guard against nil store/config (tested above).
 	// The actual save path depends on the real config dir, so we just verify
 	// the method doesn't panic when called with a valid store.
-	client.saveHSTSStore()
+	client.saveHSTSStore(client.hstsStore)
 }
 
 // ---------------------------------------------------------------------------
@@ -449,5 +448,34 @@ func TestHSTSTransportDoesNotDowngradeHTTPS(t *testing.T) {
 
 	if capturedScheme != "https" {
 		t.Errorf("expected scheme to remain https, got %q", capturedScheme)
+	}
+}
+
+func TestSetupTLSConfigEmptyPins(t *testing.T) {
+	cfg := setupTLSConfig([]CertPin{}, true)
+	if cfg == nil {
+		t.Fatal("setupTLSConfig returned nil")
+	}
+	if cfg.InsecureSkipVerify {
+		t.Error("empty pins must not enable InsecureSkipVerify")
+	}
+}
+
+func TestSetupTLSConfigVerifyConnectionNoPeer(t *testing.T) {
+	raw := make([]byte, 32)
+	pins, err := parsePinnedKeys([]string{base64.StdEncoding.EncodeToString(raw)})
+	if err != nil {
+		t.Fatalf("parsePinnedKeys: %v", err)
+	}
+	cfg := setupTLSConfig(pins, true)
+	if !cfg.InsecureSkipVerify {
+		t.Error("pinning enabled should set InsecureSkipVerify")
+	}
+	if cfg.VerifyConnection == nil {
+		t.Fatal("pinning enabled should install VerifyConnection")
+	}
+	err = cfg.VerifyConnection(tls.ConnectionState{})
+	if err == nil || !strings.Contains(err.Error(), "no peer certificates") {
+		t.Errorf("empty ConnectionState error = %v, want no-peer-certificates", err)
 	}
 }

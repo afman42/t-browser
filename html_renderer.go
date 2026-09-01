@@ -3,10 +3,30 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
+
+// endsWithNewline reports whether the builder's last rune is '\n'.  Byte-
+// indexing the tail would misread multi-byte runes.
+func endsWithNewline(b *strings.Builder) bool {
+	if b.Len() == 0 {
+		return false
+	}
+	r, _ := utf8.DecodeLastRuneInString(b.String())
+	return r == '\n'
+}
+
+// endsWithNewlineOrSpace is endsWithNewline, also true for a trailing space.
+func endsWithNewlineOrSpace(b *strings.Builder) bool {
+	if b.Len() == 0 {
+		return false
+	}
+	r, _ := utf8.DecodeLastRuneInString(b.String())
+	return r == '\n' || r == ' '
+}
 
 // renderNode renders an individual HTML node to text
 func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int) {
@@ -15,7 +35,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 		text := strings.TrimSpace(node.Data)
 		if text != "" {
 			// Add indentation if needed
-			if result.Len() > 0 && result.String()[result.Len()-1] != ' ' && result.String()[result.Len()-1] != '\n' {
+			if result.Len() > 0 && !endsWithNewlineOrSpace(result) {
 				result.WriteString(" ")
 			}
 			// Escape special characters that might interfere with tview formatting
@@ -124,7 +144,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 		case "br":
 			result.WriteString("\n")
 		case "div":
-			if isBlockElement && result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+			if isBlockElement && !endsWithNewline(result) {
 				result.WriteString("\n")
 			}
 		case "hr":
@@ -194,7 +214,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 }
 
 func (b *Browser) renderTable(tableNode *html.Node, result *strings.Builder, tabs *int) {
-	if result.Len() > 0 && result.String()[result.Len()-1] != '\n' {
+	if !endsWithNewline(result) {
 		result.WriteString("\n")
 	}
 
@@ -269,8 +289,10 @@ func (b *Browser) renderTable(tableNode *html.Node, result *strings.Builder, tab
 	colWidths := make([]int, maxCols)
 	for _, row := range allRows {
 		for i, cell := range row {
-			if i < maxCols && len(cell) > colWidths[i] {
-				colWidths[i] = len(cell)
+			if i < maxCols {
+				if w := utf8.RuneCountInString(cell); w > colWidths[i] {
+					colWidths[i] = w
+				}
 			}
 		}
 	}
@@ -299,8 +321,8 @@ func (b *Browser) renderTable(tableNode *html.Node, result *strings.Builder, tab
 			cellText := ""
 			if i < len(row) {
 				cellText = row[i]
-				if len(cellText) > maxColWidth {
-					cellText = cellText[:maxColWidth-3] + "..."
+				if utf8.RuneCountInString(cellText) > maxColWidth {
+					cellText = truncateRunes(cellText, maxColWidth-3) + "..."
 				}
 			}
 			if bold {

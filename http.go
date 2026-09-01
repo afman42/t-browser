@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,6 +27,7 @@ import (
 )
 
 const maxCacheEntries = 50
+const maxCacheBytes = 64 << 20 // 64 MiB total page-content budget
 
 type CacheEntry struct {
 	ETag         string
@@ -33,9 +37,10 @@ type CacheEntry struct {
 }
 
 type PageCache struct {
-	mu      sync.Mutex
-	entries map[string]*CacheEntry
-	order   []string
+	mu         sync.Mutex
+	entries    map[string]*CacheEntry
+	order      []string
+	totalBytes int64
 }
 
 func NewPageCache() *PageCache {
@@ -51,15 +56,27 @@ func (c *PageCache) Get(rawURL string) *CacheEntry {
 func (c *PageCache) Put(rawURL string, entry *CacheEntry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, exists := c.entries[rawURL]; !exists {
+	if old, exists := c.entries[rawURL]; exists {
+		c.totalBytes -= int64(len(old.Content))
+	} else {
 		c.order = append(c.order, rawURL)
-		if len(c.order) > maxCacheEntries {
-			evict := c.order[0]
-			c.order = c.order[1:]
+	}
+	c.totalBytes += int64(len(entry.Content))
+	c.entries[rawURL] = entry
+
+	// Evict by entry count AND total bytes: a few 50 MB pages must not pin
+	// the whole cache budget.
+	for len(c.order) > maxCacheEntries || c.totalBytes > maxCacheBytes {
+		evict := c.order[0]
+		c.order = c.order[1:]
+		if old, ok := c.entries[evict]; ok {
+			c.totalBytes -= int64(len(old.Content))
+			if c.totalBytes < 0 {
+				c.totalBytes = 0
+			}
 			delete(c.entries, evict)
 		}
 	}
-	c.entries[rawURL] = entry
 }
 
 type HTTPClient struct {
@@ -76,14 +93,17 @@ type HTTPClient struct {
 	cancelMu       sync.Mutex
 	cancelFunc     context.CancelFunc
 	reqID          int64
+
+	cookieMu  sync.RWMutex
+	transport *http.Transport
+
+	// confMu guards forceUA/maxRedirects/maxRetries and the transport/client
+	// swap in applyConfig/SetProxy.  In-flight requests snapshot these under
+	// RLock; config changes never mutate shared fields in place.
+	confMu sync.RWMutex
 }
 
 func NewHTTPClient(config *Config) *HTTPClient {
-	timeout := 30 * time.Second
-	if config != nil && config.RequestTimeout > 0 {
-		timeout = time.Duration(config.RequestTimeout) * time.Second
-	}
-
 	maxRedirects := 10
 	if config != nil && config.MaxRedirects > 0 {
 		maxRedirects = config.MaxRedirects
@@ -119,42 +139,140 @@ func NewHTTPClient(config *Config) *HTTPClient {
 		}
 	}
 
-	var hstsStore *HSTSStore
-	if config != nil && config.EnableHSTS {
-		configDir := GetConfigDir()
-		hstsPath := GetHSTSFilePath(configDir)
-		if store, err := LoadHSTS(hstsPath); err == nil {
-			hstsStore = store
-			hstsStore.Cleanup()
-		}
-	}
-
-	finalTransport := http.RoundTripper(transport)
-	if hstsStore != nil {
-		finalTransport = &hstsTransport{inner: transport, store: hstsStore}
-	}
-
 	client := &HTTPClient{
-		client: &http.Client{
-			Transport: finalTransport,
-			Timeout:   timeout,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
 		cookies:        make(map[string]*Cookie),
 		forceUA:        userAgent,
 		maxRedirects:   maxRedirects,
 		maxRetries:     maxRetries,
 		retryBaseDelay: 1 * time.Second,
 		config:         config,
-		hstsStore:      hstsStore,
 		pageCache:      NewPageCache(),
+		transport:      transport,
 	}
-
+	client.ensureHSTSStore()
+	client.client = client.buildClientLocked()
 	client.loadCookiesFromFile()
 
 	return client
+}
+
+// ensureHSTSStore loads the persisted HSTS store when HSTS is enabled and no
+// store is attached yet.  A failed load leaves the store nil (HSTS off).
+func (c *HTTPClient) ensureHSTSStore() {
+	if c.config == nil || !c.config.EnableHSTS || c.hstsStore != nil {
+		return
+	}
+	configDir := GetConfigDir()
+	hstsPath := GetHSTSFilePath(configDir)
+	if store, err := LoadHSTS(hstsPath); err == nil {
+		store.Cleanup()
+		c.hstsStore = store
+	}
+}
+
+// buildClientLocked constructs a *http.Client carrying the current timeout and
+// HSTS-wrapped transport.  Used by the constructor (before the client is
+// shared) and by applyConfig/SetProxy, which call it under confMu.
+func (c *HTTPClient) buildClientLocked() *http.Client {
+	t := http.RoundTripper(c.transport)
+	if c.config != nil && c.config.EnableHSTS && c.hstsStore != nil {
+		t = &hstsTransport{inner: c.transport, store: c.hstsStore}
+	}
+	timeout := 30 * time.Second
+	if c.config != nil && c.config.RequestTimeout > 0 {
+		timeout = time.Duration(c.config.RequestTimeout) * time.Second
+	}
+	return &http.Client{
+		Transport: t,
+		Timeout:   timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+// applyConfig pushes live-configurable fields into the client so settings
+// changes take effect without a restart.  Shared transport/client fields are
+// never mutated in place: the transport is cloned, the client rebuilt, then
+// both are swapped under confMu — an in-flight request sees the old or the
+// new configuration, never a torn one.  Pinning and HSTS affect only new
+// connections; pooled connections keep their old TLS config until idle.
+func (c *HTTPClient) applyConfig() {
+	if c.config == nil || c.transport == nil {
+		return
+	}
+	c.confMu.Lock()
+	defer c.confMu.Unlock()
+	c.forceUA = c.config.UserAgent
+	c.maxRedirects = c.config.MaxRedirects
+	c.maxRetries = c.config.MaxRetries
+	c.ensureHSTSStore()
+	nc := c.transport.Clone()
+	if c.config.Proxy != "" {
+		if p, err := url.Parse(c.config.Proxy); err == nil {
+			nc.Proxy = http.ProxyURL(p)
+		}
+	} else {
+		nc.Proxy = nil
+	}
+	nc.TLSClientConfig = nil
+	if c.config.EnablePinning && len(c.config.PinnedKeys) > 0 {
+		if pins, err := parsePinnedKeys(c.config.PinnedKeys); err == nil {
+			nc.TLSClientConfig = setupTLSConfig(pins, true)
+		}
+	}
+	c.transport = nc
+	c.client = c.buildClientLocked()
+}
+
+// SetUserAgent applies a user agent to new requests.
+func (c *HTTPClient) SetUserAgent(ua string) {
+	c.confMu.Lock()
+	c.forceUA = ua
+	c.confMu.Unlock()
+}
+
+// transportSnapshot returns the current base transport for side-channel
+// requests (image preview) that share proxy/TLS configuration.
+func (c *HTTPClient) transportSnapshot() *http.Transport {
+	c.confMu.RLock()
+	defer c.confMu.RUnlock()
+	return c.transport
+}
+
+// checkRequestHost validates scheme, literal/legacy IP forms, the configured
+// blocklist, and — for DNS names — that the host does not resolve to an
+// internal address.  Runs at the start of every fetch and every redirect hop
+// so a redirect chain can never land on a private/blocked target (SSRF).
+func (c *HTTPClient) checkRequestHost(u *url.URL) error {
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme: %s", u.Scheme)
+	}
+	host := u.Hostname()
+	if isInternalAddress(host) {
+		return fmt.Errorf("access to internal address not allowed: %s", host)
+	}
+	if c.config != nil && len(c.config.BlockedDomains) > 0 && isBlockedDomain(host, c.config.BlockedDomains) {
+		return fmt.Errorf("access to blocked domain not allowed: %s", host)
+	}
+	if net.ParseIP(host) != nil {
+		return nil
+	}
+	// DNS names: confirm every resolved address is public.  A lookup failure
+	// falls through — the request itself will fail, and this keeps the check
+	// usable in offline environments.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil
+	}
+	for _, a := range ips {
+		if a.IP != nil && isInternalIP(a.IP) {
+			return fmt.Errorf("host %s resolves to internal address %s", host, a.IP)
+		}
+	}
+	return nil
 }
 
 func (c *HTTPClient) CancelRequest() {
@@ -166,18 +284,42 @@ func (c *HTTPClient) CancelRequest() {
 }
 
 func (c *HTTPClient) SetProxy(proxy *url.URL) {
-	if transport, ok := c.client.Transport.(*http.Transport); ok {
-		transport.Proxy = http.ProxyURL(proxy)
+	if c.transport == nil {
+		return
 	}
+	c.confMu.Lock()
+	defer c.confMu.Unlock()
+	nc := c.transport.Clone()
+	if proxy == nil {
+		nc.Proxy = nil
+	} else {
+		nc.Proxy = http.ProxyURL(proxy)
+	}
+	c.transport = nc
+	c.client = c.buildClientLocked()
 }
 
 func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, retryCount int) (string, error) {
-	if redirectCount > c.maxRedirects {
-		return "", fmt.Errorf("maximum redirect limit (%d) exceeded", c.maxRedirects)
+	// Snapshot live-configurable state once per request: applyConfig/SetProxy
+	// swap these under confMu, so each request sees one consistent config.
+	c.confMu.RLock()
+	maxRedirects := c.maxRedirects
+	maxRetries := c.maxRetries
+	ua := c.forceUA
+	client := c.client
+	hstsStore := c.hstsStore
+	c.confMu.RUnlock()
+
+	if redirectCount > maxRedirects {
+		return "", fmt.Errorf("maximum redirect limit (%d) exceeded", maxRedirects)
 	}
 
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
+		return "", err
+	}
+
+	if err := c.checkRequestHost(parsedURL); err != nil {
 		return "", err
 	}
 
@@ -204,7 +346,7 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, re
 		return "", err
 	}
 
-	req.Header.Set("User-Agent", c.forceUA)
+	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
@@ -231,6 +373,7 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, re
 
 	enforceSameSite := c.config != nil && c.config.EnforceSameSite
 	if c.config == nil || c.config.EnableCookies {
+		c.cookieMu.RLock()
 		for _, cookie := range c.cookies {
 			if cookie.Matches(parsedURL, enforceSameSite) {
 				req.AddCookie(&http.Cookie{
@@ -239,9 +382,10 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, re
 				})
 			}
 		}
+		c.cookieMu.RUnlock()
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -255,7 +399,7 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, re
 	// exponential backoff that honours the server's Retry-After header.  This
 	// runs before body processing so non-HTML error bodies are retried too.
 	// The backoff is interruptible by the request context so Esc still cancels.
-	if isTransientStatus(resp.StatusCode) && retryCount < c.maxRetries {
+	if isTransientStatus(resp.StatusCode) && retryCount < maxRetries {
 		backoff := c.retryBackoff(resp, retryCount)
 		select {
 		case <-ctx.Done():
@@ -265,16 +409,9 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, re
 		return c.fetchPageWithRedirectLimit(rawURL, 0, retryCount+1)
 	}
 
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(strings.ToLower(contentType), "text/html") &&
-		!strings.Contains(strings.ToLower(contentType), "text/plain") &&
-		!strings.Contains(strings.ToLower(contentType), "application/xhtml+xml") {
-		return "", fmt.Errorf("content type not supported: %s", contentType)
-	}
-
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		for _, httpCookie := range resp.Cookies() {
-			c.addCookie(httpCookie, parsedURL.Host)
+			c.addCookie(httpCookie, parsedURL.Hostname())
 		}
 
 		location := resp.Header.Get("Location")
@@ -288,18 +425,36 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, re
 				return "", fmt.Errorf("invalid redirect URL: %w", parseErr)
 			}
 			resolved := parsedURL.ResolveReference(locURL)
+			// Re-validate every hop: a redirect chain must never escape the
+			// same-origin / public-address policy (SSRF).
+			if err := c.checkRequestHost(resolved); err != nil {
+				return "", fmt.Errorf("blocked redirect target %s: %w", resolved.String(), err)
+			}
 			return c.fetchPageWithRedirectLimit(resolved.String(), redirectCount+1, retryCount)
 		}
 	}
 
-	for _, httpCookie := range resp.Cookies() {
-		c.addCookie(httpCookie, parsedURL.Host)
+	// Surface server errors after retry exhaustion instead of rendering the
+	// 5xx body as page content.
+	if resp.StatusCode >= 500 {
+		return "", fmt.Errorf("server error: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
-	if c.hstsStore != nil {
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(strings.ToLower(contentType), "text/html") &&
+		!strings.Contains(strings.ToLower(contentType), "text/plain") &&
+		!strings.Contains(strings.ToLower(contentType), "application/xhtml+xml") {
+		return "", fmt.Errorf("content type not supported: %s", contentType)
+	}
+
+	for _, httpCookie := range resp.Cookies() {
+		c.addCookie(httpCookie, parsedURL.Hostname())
+	}
+
+	if hstsStore != nil {
 		if hstsHeader := resp.Header.Get("Strict-Transport-Security"); hstsHeader != "" {
-			c.hstsStore.RecordPolicy(parsedURL.Hostname(), hstsHeader)
-			c.saveHSTSStore()
+			hstsStore.RecordPolicy(parsedURL.Hostname(), hstsHeader)
+			c.saveHSTSStore(hstsStore)
 		}
 	}
 
@@ -326,12 +481,22 @@ func (c *HTTPClient) fetchPageWithRedirectLimit(rawURL string, redirectCount, re
 		reader = gr
 		closer = gr
 	case "deflate":
-		zr, err := zlib.NewReader(resp.Body)
-		if err != nil {
-			return "", err
+		// Some servers send raw DEFLATE (RFC 1951) instead of zlib-wrapped
+		// (RFC 1950).  Distinguish by the zlib header before choosing.
+		br := bufio.NewReader(resp.Body)
+		hdr, err := br.Peek(2)
+		if err != nil || len(hdr) < 2 || hdr[0]&0x0f != 8 || hdr[0]>>4 > 7 {
+			fr := flate.NewReader(br)
+			reader = fr
+			closer = fr
+		} else {
+			zr, err := zlib.NewReader(br)
+			if err != nil {
+				return "", err
+			}
+			reader = zr
+			closer = zr
 		}
-		reader = zr
-		closer = zr
 	case "br":
 		reader = brotli.NewReader(resp.Body)
 	}
@@ -476,5 +641,10 @@ func isValidRedirectLocation(location string, originalURL *url.URL) bool {
 		return false
 	}
 
+	// Protocol-relative ("//host") redirects are cross-host: reject them, they
+	// would bypass the same-origin policy checked above.
+	if strings.HasPrefix(location, "//") {
+		return false
+	}
 	return strings.HasPrefix(location, "/") || strings.HasPrefix(location, "#") || strings.HasPrefix(location, "?")
 }

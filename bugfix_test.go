@@ -121,6 +121,18 @@ func TestIsInternalAddressWithNetIP(t *testing.T) {
 		{"1.1.1.1", false},
 		{"", false},
 		{"not-an-ip.example.com", false},
+		// Legacy inet_aton forms (SSRF via resolver interpretation).
+		{"2130706433", true}, // 127.0.0.1
+		{"0x7f000001", true}, // 127.0.0.1
+		{"0177.0.0.1", true}, // 127.0.0.1
+		{"0x7f.0.0.1", true}, // 127.0.0.1
+		{"3232235777", true}, // 192.168.1.1
+		{"2130706434", true}, // 127.0.0.2 — still loopback
+		// Partial-quad inet_aton forms: the final part is wider than 8 bits.
+		{"127.65535", true},   // 127.0.255.255
+		{"127.0.65535", true}, // 127.0.255.255
+		{"10.65535", true},    // 10.0.255.255
+		{"1.2.3", false},      // 1.2.0.3 — public
 	}
 
 	for _, tc := range tests {
