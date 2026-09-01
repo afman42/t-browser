@@ -18,10 +18,11 @@ Browse the web from anywhere you can open a terminal.
 | **Security**        | HTML sanitisation, external resource blocking, HSTS, certificate pinning, sanitisation report API |
 | **Proxy**           | Via config file or environment variable |
 | **Themes**          | Dark / light with one-key toggle in settings |
-| **Clipboard**       | Press `p` in the URL bar to paste from system clipboard |
+| **Clipboard**       | Press `Ctrl+P` in the URL bar to paste from system clipboard |
 | **Web Search**      | Type a search query in the URL bar — it goes to your search engine |
 | **HTTP/2**          | Automatic HTTP/2 with HTTP/1.1 fallback |
 | **Compression**     | gzip, raw DEFLATE, zlib-wrapped deflate, and Brotli decompression |
+| **Static Analysis** | `go vet`, `staticcheck`, `golangci-lint` and `govulncheck` all clean in CI |
 | **HTTP Caching**    | ETag / Last-Modified conditional requests (304 Not Modified) + optional client-side TTL |
 | **Retry**           | Automatic retry of 429 / 502 / 503 / 504 with exponential backoff and `Retry-After` support; server errors surface after exhaustion |
 | **Cancel Loading**  | Press `Esc` to abort a slow page load |
@@ -38,7 +39,9 @@ Browse the web from anywhere you can open a terminal.
 ## 🚀 Quick Start
 
 ### Requirements
-- **Go 1.24+**
+- **Go 1.25+** (`go.mod` requires `go 1.25.0`; CI builds and tests on **1.25.13**,
+  the patch level that clears the reachable `crypto/x509`, `crypto/tls`,
+  `net/url` and `net/http` advisories)
 - `gcc` (needed for `make test-race` on Linux)
 
 ### Install & Run
@@ -67,6 +70,17 @@ make tidy           # Run go mod tidy
 make clean          # Remove build artefacts
 ```
 
+`make lint` runs `go vet` only. CI additionally runs `golangci-lint`
+(configured by `.golangci.yml`) and `govulncheck`; to reproduce that locally:
+
+```bash
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+GOOS=windows go vet ./...     # the build targets windows and darwin,
+GOOS=darwin  go vet ./...     # so vet should cover them too
+go test ./... -shuffle=on     # this suite shares process-global state
+```
+
 ---
 
 ## ⌨️ Keyboard Shortcuts
@@ -86,8 +100,8 @@ make clean          # Remove build artefacts
 | `Ctrl+L`        | List all links on the page      |
 | `Ctrl+T`        | Open a new tab                  |
 | `Ctrl+W`        | Close current tab               |
-| `>`             | Switch to next tab              |
-| `<`             | Switch to previous tab          |
+| `>` / `Ctrl+Tab`         | Switch to next tab              |
+| `<` / `Ctrl+Shift+Tab`   | Switch to previous tab          |
 | `Ctrl+S`        | Open settings                   |
 | `Ctrl+P`        | Paste URL from clipboard        |
 | `q` / `Ctrl+C`  | Quit                           |
@@ -151,31 +165,40 @@ t-browser/
 ├── textutil.go              # wrapText — word-boundary text wrapping for UI
 │
 ├── Makefile                 # Build, test, coverage, lint
+├── .golangci.yml            # golangci-lint config; documents the deliberate errcheck discards
+├── .github/workflows/build.yml  # CI: lint, vulncheck, test (linux/macos/windows), coverage floor, cross-build
 │
-├── *_test.go                          # Tests alongside each module
 ├── harness_test.go                    # tcell SimulationScreen harness (Run(), animation goroutines)
 ├── ui_keys_test.go                    # setupKeyBindings branches, modal input-capture closures
+├── ui_test.go                         # Web search resolution, tab management tests
+├── browser_test.go                    # URL validation, word-wrap heuristic, tab bar, history completion
 ├── theme_test.go                      # Palette, themeForName, ApplyTheme, content re-colouring
-├── navigation_test.go                 # prepareNavigation, title/status bar, loading indicator
-├── renderer_test.go                   # renderPage, fallback, samePageURL refresh loop guard
+├── navigation_test.go                 # prepareNavigation, title/status bar, loading indicator, SSRF
+├── renderer_test.go                   # renderPage, fallback, samePageURL refresh loop guard, resolveURL
 ├── html_renderer_test.go              # endsWithNewline, isInThead, renderNode escaping
-├── search_test.go                     # Search history, match navigation, status position
+├── rendering_test.go                  # Table rendering, sanitisation report tests
+├── search_test.go                     # Search history, match navigation, formatting strip
+├── search_highlight_test.go           # Regex compilation, highlighting, truncateRunes
+├── search_navigation_test.go          # n/N search match navigation tests
 ├── pagination_test.go                 # Link/image filters, modal pagination clamping
+├── settings_test.go                   # Setting categories, updateSettingValue, live-client apply
 ├── settings_modal_test.go             # Two-column modal build, right-column swap, close
 ├── http_test.go                       # checkRequestHost, cookie domain, encoding conversion
+├── http_mock_test.go                  # Mock transport + newMockClient helpers shared by HTTP tests
 ├── http_enhancements_test.go          # HTTP/2, brotli, deflate, caching, meta charset tests
 ├── http_retry_test.go                 # Transient retry, Retry-After, cache TTL tests
-├── rendering_test.go                  # Table rendering, sanitisation report tests
-├── toast_test.go                      # Spinner, status toast, tab-bar loading tests
-├── ui_test.go                         # Web search resolution, tab management tests
-├── bugfix_test.go                     # Cache eviction, cancel race, legacy-IP SSRF, deadlock tests
-├── search_navigation_test.go          # n/N search match navigation tests
-├── image_extraction_test.go           # Image extraction and preview tests
-├── image_test.go                      # Extension detection, content-type probe, downloadImage
+├── content_security_test.go           # sanitizeHTML, event handlers, javascript: URLs, blocking
+├── security_test.go                   # HSTS store, certificate pinning, setupTLSConfig
+├── url_security_test.go               # Tracking-param stripping, domain blocklist tests
 ├── config_test.go                     # XDG paths, pruneOldFiles, InitializeConfig round-trip
-├── url_security_test.go              # Tracking-param stripping, domain blocklist tests
-├── keyutil_test.go                   # isTabKey / isShiftTab tests
-└── enhancements_test.go              # Pagination filters, heading colours, settings wiring tests
+├── image_test.go                      # Extension detection, content-type probe, downloadImage
+├── image_extraction_test.go           # Image extraction and preview tests
+├── links_test.go                      # extractVisibleLinks filtering
+├── keyutil_test.go                    # isTabKey / isShiftTab tests
+├── toast_test.go                      # Spinner, status toast, tab-bar loading tests
+├── bugfix_test.go                     # Cache eviction, cancel race, legacy-IP SSRF, deadlock tests
+├── integration_test.go                # End-to-end fetch + sanitise + render paths
+└── enhancements_test.go               # Pagination filters, heading colours, settings wiring tests
 ```
 
 ### How a Page Loads
@@ -232,13 +255,14 @@ User types URL ----> ui.go (resolveInputURL: URL or search query?)
 | **Search**           | `search.go`, `search_highlight.go` |
 | **Security**         | `content_security.go`, `security.go`, `url_security.go` |
 | **UI**               | `ui.go`, `settings.go`, `settings_modal.go`, `pagination.go`, `keyutil.go`, `textutil.go` |
-| **Tests**            | `*_test.go` — unit tests per module, plus `harness_test.go` (tcell SimulationScreen) and `ui_keys_test.go` (synthetic `tcell` key events for input-capture closures) |
+| **Tests**            | `*_test.go` — unit tests per module, plus `harness_test.go` (tcell SimulationScreen), `ui_keys_test.go` (synthetic `tcell` key events for input-capture closures) and `http_mock_test.go` (shared mock transport) |
+| **Build & CI**       | `Makefile`, `.golangci.yml`, `.github/workflows/build.yml` |
 
 ---
 
 ## ⚙️ Configuration
 
-Configuration is **auto-created** on first launch. Press `s` to open the settings UI. On Linux, `XDG_CONFIG_HOME` is honoured. Network settings (`user_agent`, `proxy`, `request_timeout`, `max_redirects`, `max_retries`, `enable_pinning`, `enable_hsts`) apply live when saved — no restart required; new connections pick them up immediately.
+Configuration is **auto-created** on first launch. Press `Ctrl+S` to open the settings UI. On Linux, `XDG_CONFIG_HOME` is honoured. Network settings (`user_agent`, `proxy`, `request_timeout`, `max_redirects`, `max_retries`, `enable_pinning`, `enable_hsts`) apply live when saved — no restart required; new connections pick them up immediately. A failed write (read-only or full config directory) is reported as a status toast rather than silently discarded.
 
 | Platform | File |
 |----------|------|
@@ -356,19 +380,47 @@ blocked_domains:
 - **Tracking-param stripping** — `utm_*`/`fbclid`/`gclid` etc. removed from navigated URLs
 - **Domain blocklist** — configurable list of blocked domains with subdomain matching
 - **Live settings** — network settings (`user_agent`, `proxy`, `request_timeout`, `max_redirects`, `max_retries`, `enable_pinning`, `enable_hsts`) take effect on save; the transport is cloned and swapped so in-flight requests keep a consistent config
+- **Persistence failures are reported** — a settings write failure raises a status toast; session and cookie write or restore failures warn on stderr. None of them fail silently, so lost tabs or a lost cookie jar always come with an explanation
 
 ---
 
 ## 🤝 Contributing
 
 ```bash
-make test           # Run all tests (394 test functions, 582 cases incl. subtests)
+make test           # Run all tests (410 test functions, 673 cases incl. subtests)
 make test-race      # Run with race detector
 make lint           # Run go vet
-make coverage       # Check per-function coverage (81.1% of statements)
+make coverage       # Check per-function coverage (81.2% of statements)
 ```
 
 All source files follow Go conventions. Tests live alongside the module they test (`*_test.go`).
+
+### CI gates
+
+`.github/workflows/build.yml` runs on push and pull request to `main`. A change
+has to clear all of these:
+
+| Job | Checks |
+|-----|--------|
+| **lint** | `go mod tidy` (no diff), `go mod verify`, `gofmt`, `go vet`, `GOOS=windows`/`GOOS=darwin` vet, `golangci-lint` |
+| **vulncheck** | `govulncheck ./...` — fails on any *reachable* vulnerability |
+| **test** | build + `go test -shuffle=on` + `-race`, on linux, macOS **and windows** |
+| **coverage** | per-function report, artefact upload, and a **78% floor** (current: 81.2%) |
+| **build** | cross-compiles 6 targets; gated on `lint` and `test` passing |
+
+Windows is in the test matrix because `config.go` branches on `runtime.GOOS`
+for config paths, and `-shuffle=on` is on because this suite shares
+process-global state (viper globals, `tview.Styles`, the cookie jar) — the
+usual home of order dependence.
+
+`govulncheck` failing the build is deliberate rather than advisory: this
+browser parses untrusted HTML through `x/net/html` and decodes untrusted
+images through `x/image`, so a reachable CVE in either is live exposure, not
+a paperwork item.
+
+Dependencies are upgraded **one module per commit** with the changelog read,
+a green suite before and after, and the lockfile diff reviewed — not in a bulk
+`go get -u`.
 
 ### Testing UI code
 
