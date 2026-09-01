@@ -20,13 +20,14 @@ func (b *Browser) createUI() {
 	var completionIndex int
 
 	b.urlInput.SetDoneFunc(func(key tcell.Key) {
-		if key == tcell.KeyEnter {
+		switch key {
+		case tcell.KeyEnter:
 			input := b.urlInput.GetText()
 			navigURL := resolveInputURL(input, b.config)
 			b.NavigateTo(navigURL)
 			b.app.SetFocus(b.currentTab().textView)
 			completions = nil
-		} else if key == tcell.KeyEscape {
+		case tcell.KeyEscape:
 			b.app.SetFocus(b.currentTab().textView)
 			completions = nil
 		}

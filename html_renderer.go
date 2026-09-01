@@ -137,7 +137,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 			if isParent(node, "ol") {
 				// Handle ordered list
 				index := getListItemIndex(node)
-				result.WriteString(fmt.Sprintf("%d. ", index))
+				fmt.Fprintf(result, "%d. ", index)
 			} else {
 				result.WriteString("* ")
 			}
@@ -195,7 +195,7 @@ func (b *Browser) renderNode(node *html.Node, result *strings.Builder, tabs *int
 		case "a":
 			if href, exists := getAttribute(node, "href"); exists {
 				// Format the link in a more readable way
-				result.WriteString(fmt.Sprintf(" [%s]", href))
+				fmt.Fprintf(result, " [%s]", href)
 			}
 		case "ul", "ol":
 			*tabs -= 1
@@ -326,9 +326,9 @@ func (b *Browser) renderTable(tableNode *html.Node, result *strings.Builder, tab
 				}
 			}
 			if bold {
-				result.WriteString(fmt.Sprintf(" [::b]%-*s[::-] ", colWidths[i], cellText))
+				fmt.Fprintf(result, " [::b]%-*s[::-] ", colWidths[i], cellText)
 			} else {
-				result.WriteString(fmt.Sprintf(" %-*s ", colWidths[i], cellText))
+				fmt.Fprintf(result, " %-*s ", colWidths[i], cellText)
 			}
 			if i < maxCols-1 {
 				result.WriteString("│")

@@ -101,7 +101,7 @@ func (b *Browser) renderPage(tab *Tab, htmlContent, rawURL string) {
 	var result strings.Builder
 
 	if article.Title != "" {
-		result.WriteString(fmt.Sprintf("[::b]%s[::-]\n\n", article.Title))
+		fmt.Fprintf(&result, "[::b]%s[::-]\n\n", article.Title)
 	}
 
 	cleanedContent := cleanExcessiveWhitespace(article.TextContent)
@@ -112,7 +112,7 @@ func (b *Browser) renderPage(tab *Tab, htmlContent, rawURL string) {
 	result.WriteString(sanitizedContent)
 
 	if article.Image != "" {
-		result.WriteString(fmt.Sprintf("\n[Image: %s]", article.Image))
+		fmt.Fprintf(&result, "\n[Image: %s]", article.Image)
 	}
 
 	tab.links = visibleLinks

@@ -1,0 +1,28 @@
+version: "2"
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      # Deliberate discards, each reviewed:
+      #  - (*os.File).Close / io.Closer in defers: nothing actionable on close
+      #    failure after the body has been read.
+      #  - fmt.Sscanf on Content-Length: a failed parse leaves the size at 0
+      #    and the subsequent limit check still applies.
+      #  - os.MkdirAll before a write: the write itself fails loudly if the
+      #    directory is missing.
+      #  - os.Remove in pruneOldFiles: documented best-effort retention.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*net/http.Response).Body.Close
+        - fmt.Sscanf
+        - os.MkdirAll
+        - os.Remove
+
+  exclusions:
+    rules:
+      # Tests intentionally ignore returns when the assertion is a side effect
+      # (the widget state, the mock's request count) rather than the value.
+      - path: _test\.go
+        linters:
+          - errcheck

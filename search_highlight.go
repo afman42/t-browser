@@ -129,9 +129,9 @@ func (b *Browser) highlightSelectedMatch(text string, re *regexp.Regexp, selecte
 					absoluteEnd := lineStartPos + end
 
 					if absoluteStart == selectedMatch.CharStart && absoluteEnd == selectedMatch.CharEnd {
-						lineResult.WriteString(fmt.Sprintf("[yellow::b]%s[-]", line[start:end]))
+						fmt.Fprintf(&lineResult, "[yellow::b]%s[-]", line[start:end])
 					} else {
-						lineResult.WriteString(fmt.Sprintf("[yellow]%s[-]", line[start:end]))
+						fmt.Fprintf(&lineResult, "[yellow]%s[-]", line[start:end])
 					}
 
 					lastEnd = end
@@ -152,7 +152,7 @@ func (b *Browser) highlightSelectedMatch(text string, re *regexp.Regexp, selecte
 				for _, match := range lineMatches {
 					start, end := match[0], match[1]
 					lineResult.WriteString(line[lastEnd:start])
-					lineResult.WriteString(fmt.Sprintf("[yellow]%s[-]", line[start:end]))
+					fmt.Fprintf(&lineResult, "[yellow]%s[-]", line[start:end])
 					lastEnd = end
 				}
 
