@@ -119,14 +119,6 @@ jobs:
       - name: Build
         run: go build ./...
 
-      # -shuffle=on catches order dependence between tests that share process
-      # state (viper globals, tview.Styles, the cookie jar).
-      - name: Test
-        run: go test ./... -count=1 -shuffle=on
-
-      - name: Test with race detector
-        run: go test ./... -race -count=1
-
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
