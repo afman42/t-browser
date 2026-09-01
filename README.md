@@ -15,15 +15,15 @@ Browse the web from anywhere you can open a terminal.
 | **Images**          | Preview JPG, PNG, GIF, BMP, WebP as ASCII art in the terminal |
 | **Sessions**        | Save/restore history and tabs across restarts |
 | **Cookies**         | RFC 6265 compliant, SameSite enforcement, auto-save |
-| **Security**        | HTML sanitisation, external resource blocking, HSTS, certificate pinning, sanitisation logging |
+| **Security**        | HTML sanitisation, external resource blocking, HSTS, certificate pinning, sanitisation report API |
 | **Proxy**           | Via config file or environment variable |
 | **Themes**          | Dark / light with one-key toggle in settings |
 | **Clipboard**       | Press `p` in the URL bar to paste from system clipboard |
 | **Web Search**      | Type a search query in the URL bar — it goes to your search engine |
 | **HTTP/2**          | Automatic HTTP/2 with HTTP/1.1 fallback |
-| **Compression**     | gzip, deflate, and Brotli decompression |
+| **Compression**     | gzip, raw DEFLATE, zlib-wrapped deflate, and Brotli decompression |
 | **HTTP Caching**    | ETag / Last-Modified conditional requests (304 Not Modified) + optional client-side TTL |
-| **Retry**           | Automatic retry of 429 / 502 / 503 / 504 with exponential backoff and `Retry-After` support |
+| **Retry**           | Automatic retry of 429 / 502 / 503 / 504 with exponential backoff and `Retry-After` support; server errors surface after exhaustion |
 | **Cancel Loading**  | Press `Esc` to abort a slow page load |
 | **Table Rendering** | HTML tables rendered as aligned text grids with borders |
 | **Tab Spinner**     | Loading tabs show an animated braille spinner in the tab bar |
@@ -31,6 +31,7 @@ Browse the web from anywhere you can open a terminal.
 | **Link/Image Filter** | Type-to-filter inside the links/images modals |
 | **Tracking-Param Stripping** | Removes `utm_*`, `fbclid`, `gclid`, etc. from navigated URLs |
 | **Domain Blocklist**  | Blocklisted domains (with subdomain matching) are rejected at navigation |
+| **Live Settings**   | Network settings apply on save — no restart needed |
 
 ---
 
@@ -123,9 +124,9 @@ t-browser/
 ├── theme.go                 # Dark/light theme definitions and application
 │
 ├── session.go               # Session persistence, GoBack / GoForward
-├── navigation.go            # NavigateTo(), URL validation (net.ParseIP SSRF), loading spinner
+├── navigation.go            # navigateTab(), prepareNavigation(), URL validation (literal + legacy IP + DNS SSRF), loading spinner
 ├── toast.go                 # Transient status-bar toast notifications
-├── renderer.go              # Page rendering (readability, goquery, meta refresh, resolveURL)
+├── renderer.go              # Page rendering (readability, goquery, meta refresh + samePageURL guard, resolveURL)
 ├── html_renderer.go         # renderNode() — walks the HTML DOM tree, renderTable() with borders
 ├── links.go                 # extractVisibleLinks() — filters links by content
 ├── image.go                 # Image utilities (extension check, content-type)
@@ -134,7 +135,7 @@ t-browser/
 ├── search.go                # Search UI (input field, result list, n/N match navigation)
 ├── search_highlight.go      # Regex matching and text highlighting
 │
-├── http.go                  # HTTPClient, HTTP/2, gzip/deflate/brotli, ETag cache, Esc cancel
+├── http.go                  # HTTPClient, live config swap (confMu), checkRequestHost SSRF, HTTP/2, gzip/deflate/brotli, ETag cache, Esc cancel
 ├── http_retry.go            # Transient retry, Retry-After backoff, cache TTL helpers
 ├── cookie.go                # Cookie struct, domain/path matching, persistence
 │
@@ -152,15 +153,26 @@ t-browser/
 ├── Makefile                 # Build, test, coverage, lint
 │
 ├── *_test.go                          # Tests alongside each module
+├── harness_test.go                    # tcell SimulationScreen harness (Run(), animation goroutines)
+├── ui_keys_test.go                    # setupKeyBindings branches, modal input-capture closures
+├── theme_test.go                      # Palette, themeForName, ApplyTheme, content re-colouring
+├── navigation_test.go                 # prepareNavigation, title/status bar, loading indicator
+├── renderer_test.go                   # renderPage, fallback, samePageURL refresh loop guard
+├── html_renderer_test.go              # endsWithNewline, isInThead, renderNode escaping
+├── search_test.go                     # Search history, match navigation, status position
+├── pagination_test.go                 # Link/image filters, modal pagination clamping
+├── settings_modal_test.go             # Two-column modal build, right-column swap, close
+├── http_test.go                       # checkRequestHost, cookie domain, encoding conversion
 ├── http_enhancements_test.go          # HTTP/2, brotli, deflate, caching, meta charset tests
 ├── http_retry_test.go                 # Transient retry, Retry-After, cache TTL tests
-├── navigation_test.go                 # SSRF (net.ParseIP) validation tests
 ├── rendering_test.go                  # Table rendering, sanitisation report tests
 ├── toast_test.go                      # Spinner, status toast, tab-bar loading tests
 ├── ui_test.go                         # Web search resolution, tab management tests
-├── bugfix_test.go                     # Cache eviction, cancel race, meta refresh cancel, deadlock tests
+├── bugfix_test.go                     # Cache eviction, cancel race, legacy-IP SSRF, deadlock tests
 ├── search_navigation_test.go          # n/N search match navigation tests
 ├── image_extraction_test.go           # Image extraction and preview tests
+├── image_test.go                      # Extension detection, content-type probe, downloadImage
+├── config_test.go                     # XDG paths, pruneOldFiles, InitializeConfig round-trip
 ├── url_security_test.go              # Tracking-param stripping, domain blocklist tests
 ├── keyutil_test.go                   # isTabKey / isShiftTab tests
 └── enhancements_test.go              # Pagination filters, heading colours, settings wiring tests
@@ -172,30 +184,34 @@ t-browser/
 User types URL ----> ui.go (resolveInputURL: URL or search query?)
                           │
                           ▼
-                     navigation.go (NavigateTo)
+                     navigation.go (NavigateTo → navigateTab(tab, url))
                           │
-                          ├── strip tracking params (utm_*/fbclid/gclid) if enabled
-                          ├── cancel any pending meta-refresh goroutine
-                          ├── validateAndSanitizeURL() — net.ParseIP SSRF + domain blocklist
+                          ├── prepareNavigation(tab, url):
+                          │     ├── strip tracking params (utm_*/fbclid/gclid) if enabled
+                          │     ├── validateAndSanitizeURL() — literal + legacy IP + DNS SSRF + domain blocklist
+                          │     ├── cancel any pending meta-refresh goroutine
+                          │     └── push the previous URL onto tab history
                           │
                           ▼
                      http.go (FetchPage)
                           │
+                          ├── snapshot live config under confMu (UA, retries, redirects, client)
+                          ├── checkRequestHost() — scheme, internal/legacy IP, blocklist, DNS resolution
                           ├── cache TTL check (serve fresh entry without network)
                           ├── ETag/Last-Modified conditional cache check
                           ├── cookies sent with request
                           ├── Esc cancels via context.CancelFunc
-                          ├── redirects handled manually (cookies forwarded)
-                          ├── retry 429/502/503/504 with Retry-After backoff
+                          ├── redirects handled manually (cookies forwarded, every hop re-validated for SSRF)
+                          ├── retry 429/502/503/504 with Retry-After backoff, then surface 5xx as an error
                           ├── HSTS header processed
-                          ├── gzip / deflate / brotli decompression
+                          ├── gzip / raw DEFLATE / zlib deflate / brotli decompression
                           ├── binary detection + <meta charset> detection
                           └── charset conversion (Latin-1, ISO-8859-*, UTF-16)
                           │
                           ▼
-                     renderer.go (renderPage)
-                          ├── content_security.go: sanitizeHTML() + SanitizeReport
-                          ├── meta refresh detection (cancellable goroutine)
+                     renderer.go (renderPage(tab, html, url))
+                          ├── content_security.go: sanitizeHTML() (parser-safe strip; report available via API)
+                          ├── meta refresh detection (cancellable goroutine; samePageURL loop guard)
                           ├── goquery: extract links & images (ResolveReference)
                           ├── content_security.go: blockExternalResources()
                           ├── go-readability: extract main article content
@@ -216,13 +232,13 @@ User types URL ----> ui.go (resolveInputURL: URL or search query?)
 | **Search**           | `search.go`, `search_highlight.go` |
 | **Security**         | `content_security.go`, `security.go`, `url_security.go` |
 | **UI**               | `ui.go`, `settings.go`, `settings_modal.go`, `pagination.go`, `keyutil.go`, `textutil.go` |
-| **Tests**            | `*_test.go`, `http_enhancements_test.go`, `http_retry_test.go`, `navigation_test.go`, `rendering_test.go`, `toast_test.go`, `ui_test.go`, `bugfix_test.go`, `url_security_test.go`, `keyutil_test.go`, `enhancements_test.go` |
+| **Tests**            | `*_test.go` — unit tests per module, plus `harness_test.go` (tcell SimulationScreen) and `ui_keys_test.go` (synthetic `tcell` key events for input-capture closures) |
 
 ---
 
 ## ⚙️ Configuration
 
-Configuration is **auto-created** on first launch. Press `s` to open the settings UI.
+Configuration is **auto-created** on first launch. Press `s` to open the settings UI. On Linux, `XDG_CONFIG_HOME` is honoured. Network settings (`user_agent`, `proxy`, `request_timeout`, `max_redirects`, `max_retries`, `enable_pinning`, `enable_hsts`) apply live when saved — no restart required; new connections pick them up immediately.
 
 | Platform | File |
 |----------|------|
@@ -275,23 +291,25 @@ export PROXY=http://your-proxy:port
 | Defence                   | What it blocks |
 |---------------------------|----------------|
 | **URL scheme filter**     | `javascript:`, `data:`, `file:`, `vbscript:` |
-| **Internal address block**| `localhost`, `127.*`, `10.*`, `192.168.*`, `172.16-31.*`, `169.254.*` (link-local), `::1` (IPv6), `0.0.0.0` |
-| **Open redirect guard**   | Redirects must stay on the same host or a subdomain |
+| **Internal address block**| `localhost`, `127.*`, `10.*`, `192.168.*`, `172.16-31.*`, `169.254.*` (link-local), `::1` (IPv6), `0.0.0.0`, inet_aton forms including partial quads (`2130706433`, `0x7f000001`, `0177.0.0.1`, `127.65535`), and DNS names that resolve to an internal address |
+| **Open redirect guard**   | Redirects must stay on the same host or a subdomain; protocol-relative (`//host`) redirects are rejected, and every redirect hop is re-validated against the internal-address and domain-blocklist policy |
 | **Content-type gate**     | Non-HTML responses (images, JSON, etc.) are rejected |
 | **Binary magic check**    | PNG, JPEG, GIF, ZIP, PDF signatures detected and rejected |
-| **Size limits**           | 50 MB pages, 5 MB images |
+| **Size limits**           | 50 MB pages, 5 MB images, 64 MiB total page cache, 4096×4096 max decoded image pixels |
+| **Image preview policy**  | Image URLs are page-controlled, so the preview runs the same host check as page fetches (internal/legacy IP + blocklist) before any request, over the app's transport (proxy/pinning aware) |
 | **Charset conversion**    | Latin-1, ISO-8859-*, UTF-16 → UTF-8, plus `<meta charset>` detection |
 | **tview injection**       | Brackets escaped to prevent format-code injection |
 | **Whitespace normaliser** | Consecutive blank lines collapsed |
-| **Sanitisation logging**  | Stripped scripts, iframes, and handlers logged to stderr for debugging |
+| **Sanitisation report**   | `sanitizeHTMLWithReport` returns counts of stripped scripts/iframes/handlers (API + tests); the in-page path skips counting for speed |
 
 ### Configurable Defences
 
 | Feature                   | Enabled by default? | Config key | How it works |
 |---------------------------|:---:|------------|--------------|
-| **HTML sanitisation**     | ✅ | `enable_content_security` | Strips `<script>`, `<iframe>`, `<object>`, `<embed>`, `<applet>`, all `on*` event handlers, and `javascript:`/`vbscript:` URLs from HTML before rendering |
+| **HTML sanitisation**     | ✅ | `enable_content_security` | Strips `<script>`, `<iframe>`, `<object>`, `<embed>`, `<applet>`, all `on*` event handlers (including no-space `<svg/onload=…>` forms), and `javascript:`/`vbscript:` URLs (quoted and unquoted) from HTML before rendering |
 | **External resource blocking** | ✅ | `block_external_resources` | Images, iframes, scripts, stylesheets, and `<source>` elements from other origins have their `src`/`href` removed before the page is rendered |
 | **SameSite enforcement**  | ✅ | `enforce_same_site` | Cookies with `SameSite=Strict` are not sent on cross-domain requests. `SameSite=Lax` always allowed (all requests are navigations). `SameSite=None` always allowed. |
+| **Cookie domain validation** | ✅ | — | A server-set cookie `Domain` outside the setting host's control is rejected and falls back to a host-only cookie (RFC 6265 §5.3). |
 | **HSTS**                  | ✅ | `enable_hsts` | `Strict-Transport-Security` headers are parsed and cached per domain. HTTP requests to HSTS hosts are transparently upgraded to HTTPS. Policies persisted to `~/.config/t-browser/hsts/policies.json`. |
 | **Tracking-param stripping** | ✅ | `strip_tracking_params` | Removes `utm_*`, `fbclid`, `gclid`, `msclkid`, `twclid`, `yclid`, and other analytics tracking parameters from the URL before navigation. A status toast notifies when params are stripped. |
 | **Domain blocklist**      | ❌ | `blocked_domains` | A list of domains rejected at navigation time. Matching is case-insensitive and covers subdomains (e.g. `example.com` blocks `a.b.example.com`). Suffix-attack safe (`example.com.evil.com` is not blocked). |
@@ -327,26 +345,48 @@ blocked_domains:
 - **Fast & lightweight** — designed for minimal CPU/memory usage
 - **Keyboard-only** — fully accessible from any terminal
 - **HTTP/2 enabled** — automatic negotiation with HTTP/1.1 fallback
-- **Brotli + gzip + deflate** — all three compression formats supported
-- **Retry** — 429/502/503/504 retried with exponential backoff and `Retry-After` support
+- **Brotli + gzip + deflate** — all three supported; raw DEFLATE and zlib-wrapped deflate are auto-detected
+- **Retry** — 429/502/503/504 retried with exponential backoff and `Retry-After` support; once retries are exhausted a 5xx surfaces as an error instead of rendering the error body
 - **Cache TTL** — optional client-side freshness lifetime (`cache_ttl_seconds`); defaults to always-revalidate
 - **Tables** — rendered as aligned text grids with Unicode box-drawing borders
 - **Heading colours** — h1–h6 rendered in distinct colours (cyan/yellow/green/blue/magenta/red)
-- **Meta refresh** — pages with `<meta http-equiv="refresh">` auto-navigate
+- **Meta refresh** — pages with `<meta http-equiv="refresh">` auto-navigate (relative URLs resolved; self-refresh loop-guarded)
 - **Web search** — non-URL input in the URL bar is sent to your configured search engine
 - **Link/image filter** — type to filter inside the links (`Ctrl+L`) and images (`i`) modals
 - **Tracking-param stripping** — `utm_*`/`fbclid`/`gclid` etc. removed from navigated URLs
 - **Domain blocklist** — configurable list of blocked domains with subdomain matching
+- **Live settings** — network settings (`user_agent`, `proxy`, `request_timeout`, `max_redirects`, `max_retries`, `enable_pinning`, `enable_hsts`) take effect on save; the transport is cloned and swapped so in-flight requests keep a consistent config
 
 ---
 
 ## 🤝 Contributing
 
 ```bash
-make test           # Run all tests (551 tests)
+make test           # Run all tests (394 test functions, 582 cases incl. subtests)
 make test-race      # Run with race detector
 make lint           # Run go vet
-make coverage       # Check per-function coverage
+make coverage       # Check per-function coverage (81.1% of statements)
 ```
 
 All source files follow Go conventions. Tests live alongside the module they test (`*_test.go`).
+
+### Testing UI code
+
+tview widgets and `tview.Application` construct fine without a terminal, so most
+UI code is tested directly:
+
+- **Widget-object tests** — build the widget (`newTab()`, `tview.NewApplication()`),
+  call the method, assert with `GetText()` / `GetTitle()` / `GetBackgroundColor()`.
+  No screen, no `Run()`, fully deterministic.
+- **Input-capture tests** (`ui_keys_test.go`) — pull the closure back off a
+  primitive with `GetInputCapture()` and drive individual branches with
+  `tcell.NewEventKey(...)`. This covers `setupKeyBindings` and the link/image/
+  settings modal key handlers without an event loop.
+- **Simulation-screen harness** (`harness_test.go`) — `runWithSimScreen` starts an
+  application on a `tcell.SimulationScreen` for the paths that genuinely need a
+  running event loop: `Run()`, animation goroutines, and anything calling
+  `QueueUpdateDraw`. Code that mutates the app (`SetRoot`/`SetFocus`) must be
+  invoked through `QueueUpdateDraw` inside the harness, matching production,
+  where those calls come from input captures.
+
+`main()` is a launcher and is intentionally left uncovered.
