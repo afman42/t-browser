@@ -1,5 +1,10 @@
 package main
 
+import (
+	"fmt"
+	"time"
+)
+
 // updateSettingValue updates a setting value temporarily
 func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 	switch settingID {
@@ -112,11 +117,13 @@ func (b *Browser) updateSettingValue(settingID string, value interface{}) {
 	}
 }
 
-// saveSettings saves the current settings to the config file
+// saveSettings saves the current settings to the config file.  A write failure
+// is surfaced as a toast: silently discarding it left the user believing their
+// settings were persisted.
 func (b *Browser) saveSettings() {
 	configDir := GetConfigDir()
 	if err := b.config.WriteToFile(configDir); err != nil {
-		// Could show an error message here if needed
+		b.showStatusToast(fmt.Sprintf("[red]Failed to save settings: %v[-]", err), 4*time.Second)
 	}
 
 	b.ApplyTheme()

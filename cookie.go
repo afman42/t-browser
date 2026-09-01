@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -228,10 +229,13 @@ func (c *HTTPClient) saveCookiesToFile() {
 	data, err := json.MarshalIndent(cookies, "", "  ")
 	c.cookieMu.RUnlock()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not encode cookies: %v\n", err)
 		return
 	}
 
-	os.WriteFile(cookieFile, data, 0600)
+	if err := os.WriteFile(cookieFile, data, 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not persist cookies to %s: %v\n", cookieFile, err)
+	}
 }
 
 // cleanupExpiredCookies removes expired cookies from the storage

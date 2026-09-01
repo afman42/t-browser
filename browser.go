@@ -121,7 +121,12 @@ func (b *Browser) Run() error {
 		configDir := GetConfigDir()
 		sessionFile := GetLatestSessionFile(configDir)
 		if sessionFile != "" {
-			b.LoadSession(sessionFile)
+			// A corrupt or unreadable session must not abort startup, but it
+			// should not vanish silently either: the user would otherwise see
+			// an empty browser with no explanation for the lost tabs.
+			if err := b.LoadSession(sessionFile); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not restore session from %s: %v\n", sessionFile, err)
+			}
 		}
 	}
 
@@ -181,7 +186,10 @@ func (b *Browser) Run() error {
 	if b.config != nil && b.config.SessionAutoSave {
 		configDir := GetConfigDir()
 		sessionFile := GetSessionFilePath(configDir)
-		b.SaveSession(sessionFile)
+		// Reported on stderr, not a toast: the UI is already torn down here.
+		if err := b.SaveSession(sessionFile); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not save session to %s: %v\n", sessionFile, err)
+		}
 	}
 
 	return nil
@@ -214,9 +222,9 @@ func (b *Browser) updateTabBar() {
 			label = b.spinnerChar() + " " + label
 		}
 		if i == b.activeTab {
-			sb.WriteString(fmt.Sprintf(" [::b][ %d: %s ][::-] ", i+1, label))
+			fmt.Fprintf(&sb, " [::b][ %d: %s ][::-] ", i+1, label)
 		} else {
-			sb.WriteString(fmt.Sprintf(" [ %d: %s ] ", i+1, label))
+			fmt.Fprintf(&sb, " [ %d: %s ] ", i+1, label)
 		}
 	}
 	if len(b.tabs) == 0 {
