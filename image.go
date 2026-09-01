@@ -45,11 +45,7 @@ func (b *Browser) isImageURL(url string) bool {
 	defer resp.Body.Close()
 
 	contentType := resp.Header.Get("Content-Type")
-	if strings.HasPrefix(contentType, "image/") {
-		return true
-	}
-
-	return false
+	return strings.HasPrefix(contentType, "image/")
 }
 
 // downloadImage downloads an image from URL to a temporary location

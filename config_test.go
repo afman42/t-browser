@@ -114,7 +114,7 @@ func TestGetCookieFilePath(t *testing.T) {
 	if !filepath.IsAbs(path) {
 		t.Errorf("expected absolute path, got %q", path)
 	}
-	if !filepath.HasPrefix(path, d) {
+	if !strings.HasPrefix(path, d+string(filepath.Separator)) {
 		t.Errorf("path %q should be under dir %q", path, d)
 	}
 	// Should be inside a cookies/ subdirectory

@@ -83,7 +83,6 @@ type HTTPClient struct {
 	client         *http.Client
 	cookies        map[string]*Cookie
 	forceUA        string
-	proxy          *url.URL
 	maxRedirects   int
 	maxRetries     int
 	retryBaseDelay time.Duration
