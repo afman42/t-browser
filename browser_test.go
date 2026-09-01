@@ -1,8 +1,6 @@
 package main
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestColorToTviewFormat(t *testing.T) {
 	tests := []struct {
@@ -172,4 +170,85 @@ func TestValidateAndSanitizeURL_BadFormat(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for malformed URL")
 	}
+}
+
+func TestGetHistoryCompletions(t *testing.T) {
+	b := testBrowserWithUI()
+	tab := b.currentTab()
+	tab.history = []string{
+		"https://example.com/a",
+		"https://example.com/b",
+		"https://example.com/a", // duplicate
+		"https://other.org/x",
+	}
+
+	got := b.getHistoryCompletions("https://example.com/", 10)
+	if len(got) != 2 {
+		t.Fatalf("completions = %v, want 2 unique", got)
+	}
+	// Most-recent-first, deduplicated.
+	if got[0] != "https://example.com/b" && got[0] != "https://example.com/a" {
+		t.Errorf("first completion = %q", got[0])
+	}
+	if len(got) == 2 && got[0] == got[1] {
+		t.Error("completions must not contain duplicates")
+	}
+
+	limited := b.getHistoryCompletions("https://", 1)
+	if len(limited) != 1 {
+		t.Errorf("limit 1 returned %d", len(limited))
+	}
+
+	if got := b.getHistoryCompletions("nomatch", 10); len(got) != 0 {
+		t.Errorf("no-prefix matches should be empty, got %v", got)
+	}
+}
+
+func TestMainFlexBuilds(t *testing.T) {
+	b := testBrowserWithUI()
+	flex := b.mainFlex()
+	if flex == nil {
+		t.Fatal("mainFlex returned nil")
+	}
+	if flex.GetItemCount() != 4 {
+		t.Errorf("mainFlex items = %d, want 4 (tabbar, text, status, input)", flex.GetItemCount())
+	}
+}
+
+func TestNewTabAddsActive(t *testing.T) {
+	b := testBrowserWithUI()
+	before := len(b.tabs)
+	b.newTab()
+	if len(b.tabs) != before+1 {
+		t.Errorf("tabs = %d, want %d", len(b.tabs), before+1)
+	}
+	if b.activeTab != len(b.tabs)-1 {
+		t.Errorf("activeTab = %d, want last", b.activeTab)
+	}
+}
+
+func TestCloseTab(t *testing.T) {
+	b := testBrowserWithUI()
+	b.tabs = append(b.tabs, newTab())
+	b.activeTab = 1
+
+	b.closeTab()
+	if len(b.tabs) != 1 {
+		t.Errorf("tabs = %d, want 1", len(b.tabs))
+	}
+	if b.activeTab != 0 {
+		t.Errorf("activeTab = %d, want 0 after closing last", b.activeTab)
+	}
+}
+
+func TestCloseTabLastStopsApp(t *testing.T) {
+	b := testBrowserWithUI()
+	b.closeTab() // single tab → app.Stop() path; must not panic
+}
+
+func TestRedrawCurrentView(t *testing.T) {
+	b := testBrowserWithUI()
+	b.redrawCurrentView(b.currentTab().textView)
+	// nil app is a no-op.
+	(&Browser{tabBar: nil}).redrawCurrentView(nil)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,16 @@ func TestGetDefaultConfig(t *testing.T) {
 	}
 	if cfg.WordWrap != true {
 		t.Error("default WordWrap should be true")
+	}
+}
+
+func TestXDGConfigHomeHonored(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	got := GetLinuxConfigPath()
+	want := filepath.Join(dir, "t-browser")
+	if got != want {
+		t.Errorf("GetLinuxConfigPath = %q, want %q", got, want)
 	}
 }
 
@@ -236,5 +247,103 @@ func TestConfigWriteToFile(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Error("config file is empty")
+	}
+}
+
+func TestPruneOldFiles(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Now()
+	for i := 0; i < 12; i++ {
+		p := filepath.Join(dir, fmt.Sprintf("session_%02d.json", i))
+		if err := os.WriteFile(p, []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		// Newer names get newer mtimes so pruning is deterministic.
+		os.Chtimes(p, base, base.Add(time.Duration(i)*time.Minute))
+	}
+	// Unrelated files must survive.
+	os.WriteFile(filepath.Join(dir, "cookies_keep.json"), []byte("x"), 0600)
+	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0600)
+
+	pruneOldFiles(dir, "session_", ".json", 10)
+
+	entries, _ := os.ReadDir(dir)
+	var kept int
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "session_") {
+			kept++
+		}
+	}
+	if kept != 10 {
+		t.Errorf("kept %d session files, want 10", kept)
+	}
+	// The two OLDEST files are pruned; the ten newest survive.
+	for _, name := range []string{"session_00.json", "session_01.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			t.Errorf("%s should have been removed", name)
+		}
+	}
+	for _, name := range []string{"session_11.json", "session_02.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s should still exist: %v", name, err)
+		}
+	}
+	for _, name := range []string{"cookies_keep.json", "notes.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s should still exist: %v", name, err)
+		}
+	}
+
+	// Missing dir is a no-op.
+	pruneOldFiles(filepath.Join(dir, "nope"), "session_", ".json", 10)
+}
+
+func TestPlatformConfigPaths(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir: %v", err)
+	}
+	wantWin := filepath.Join(home, "AppData", "Roaming")
+	if got := getWindowsConfigPath(); got != wantWin {
+		t.Errorf("getWindowsConfigPath = %q, want %q", got, wantWin)
+	}
+	wantMac := filepath.Join(home, "Library", "Application Support")
+	if got := getMacOSConfigPath(); got != wantMac {
+		t.Errorf("getMacOSConfigPath = %q, want %q", got, wantMac)
+	}
+	gotHome, err := getHomeDir()
+	if err != nil || gotHome == "" {
+		t.Errorf("getHomeDir = %q, err %v; want non-empty home", gotHome, err)
+	}
+}
+
+func TestWriteDefaultConfigCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteDefaultConfig(dir); err != nil {
+		t.Fatalf("WriteDefaultConfig: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "config.yaml")); err != nil {
+		t.Errorf("config.yaml missing: %v", err)
+	}
+}
+
+func TestInitializeConfigWritesDefaults(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	viper.Reset()
+	defer viper.Reset()
+
+	if err := InitializeConfig(); err != nil {
+		t.Fatalf("InitializeConfig: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "t-browser", "config.yaml")); err != nil {
+		t.Errorf("default config not written: %v", err)
+	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.UserAgent != GetDefaultConfig().UserAgent {
+		t.Errorf("loaded UserAgent = %q, want default %q", cfg.UserAgent, GetDefaultConfig().UserAgent)
 	}
 }

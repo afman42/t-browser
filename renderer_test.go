@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/rivo/tview"
 )
 
 func TestCleanExcessiveWhitespace(t *testing.T) {
@@ -279,4 +280,161 @@ func TestDetectMetaRefresh(t *testing.T) {
 			}
 		})
 	}
+}
+func TestSamePageURL(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"http://example.com/p", "http://example.com/p", true},
+		// Fragment differences do not change the page.
+		{"http://example.com/p", "http://example.com/p#top", true},
+		// Scheme/host case is folded.
+		{"http://Example.com/p", "http://example.com/p", true},
+		{"HTTP://example.com/p", "http://example.com/p", true},
+		// Different path or query is a different page.
+		{"http://example.com/p", "http://example.com/q", false},
+		{"http://example.com/p", "http://example.com/p?x=1", false},
+		// Different scheme or host.
+		{"https://example.com/p", "http://example.com/p", false},
+		{"http://a.com/p", "http://b.com/p", false},
+		// Identical unparsable strings fall back to exact equality.
+		{"not a url", "not a url", true},
+		{"not a url", "also not", false},
+	}
+	for _, tc := range tests {
+		if got := samePageURL(tc.a, tc.b); got != tc.want {
+			t.Errorf("samePageURL(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func renderTestPage() string {
+	return `<!DOCTYPE html>
+<html>
+<head><title>Test Page</title></head>
+<body>
+<h1>Heading One</h1>
+<p>Some body text with a <a href="https://example.com/next">link</a>.</p>
+<img src="https://example.com/pic.png" alt="pic">
+</body>
+</html>`
+}
+
+func TestRenderPagePopulatesTab(t *testing.T) {
+	b := &Browser{config: &Config{EnableContentSecurity: true, BlockExternalResources: false}}
+	tab := newTab()
+
+	b.renderPage(tab, renderTestPage(), "https://example.com/start")
+
+	if got := tab.textView.GetText(false); !strings.Contains(got, "Heading One") {
+		t.Errorf("rendered text missing heading: %q", got)
+	}
+	if len(tab.links) == 0 {
+		t.Error("expected links extracted from page")
+	} else if tab.links[0].URL != "https://example.com/next" {
+		t.Errorf("first link = %q, want resolved absolute URL", tab.links[0].URL)
+	}
+	if len(tab.images) == 0 {
+		t.Error("expected images extracted from page")
+	}
+	if tab.currentLinkIndex != -1 {
+		t.Errorf("currentLinkIndex = %d, want -1", tab.currentLinkIndex)
+	}
+	if tab.originalContent == "" || tab.originalUnprocessedContent == "" {
+		t.Error("original content fields should be populated")
+	}
+	if !strings.Contains(tab.textView.GetText(false), "Test Page") {
+		t.Error("page title should render")
+	}
+}
+
+func TestRenderPageBlockExternalResources(t *testing.T) {
+	b := &Browser{config: &Config{BlockExternalResources: true}}
+	tab := newTab()
+
+	html := `<!DOCTYPE html><html><head><link rel="stylesheet" href="/local.css"></head>
+<body><p><a href="https://example.com/x">x</a></p>
+<img src="http://evil.example/steal.png"><img src="/ok.png"></body></html>`
+	b.renderPage(tab, html, "https://example.com/start")
+
+	// External image must be blocked (dropped from tab.images); the local one
+	// survives.
+	var blocked, local bool
+	for _, img := range tab.images {
+		if strings.Contains(img.URL, "evil.example") {
+			blocked = true
+		}
+		if strings.Contains(img.URL, "/ok.png") {
+			local = true
+		}
+	}
+	if blocked {
+		t.Error("external image should be blocked by blockExternalResources")
+	}
+	if !local {
+		t.Error("local image should survive blocking")
+	}
+}
+
+func TestRenderPageFallbackOnBadURL(t *testing.T) {
+	b := &Browser{config: &Config{}}
+	tab := newTab()
+
+	b.renderPage(tab, "<html><body><p>hello</p></body></html>", "not a url!!")
+
+	if !strings.Contains(tab.textView.GetText(false), "hello") {
+		t.Errorf("fallback should still render body text: %q", tab.textView.GetText(false))
+	}
+}
+
+func TestRenderPageFallsBackOnUnreadable(t *testing.T) {
+	b := &Browser{config: &Config{}}
+	tab := newTab()
+
+	// readability fails on junk → renderPageFallback path.
+	b.renderPage(tab, "@@@@", "https://example.com/")
+	if tab.textView.GetText(false) == "" {
+		t.Error("fallback should produce some text")
+	}
+}
+
+func TestRenderPageSelfRefreshSkipped(t *testing.T) {
+	app := tview.NewApplication()
+	b := &Browser{config: &Config{}, app: app}
+	tab := newTab()
+
+	// Same-page fragment refresh: loop guard stops it.  The early return
+	// intentionally renders nothing (pre-existing behavior) — the point is
+	// that NO navigation goroutine is scheduled.
+	html := `<html><head><meta http-equiv="refresh" content="1;url=https://example.com/p#top"></head>
+<body><p>refreshing</p></body></html>`
+	b.renderPage(tab, html, "https://example.com/p")
+
+	if tab.metaRefreshCancel != nil {
+		t.Error("self-refresh must not schedule a navigation")
+	}
+	if got := tab.textView.GetText(false); got != "" {
+		t.Errorf("self-refresh page renders nothing, got %q", got)
+	}
+}
+
+func TestRenderPageSchedulesRealRefresh(t *testing.T) {
+	app := tview.NewApplication()
+	b := &Browser{config: &Config{}, app: app}
+	tab := newTab()
+
+	html := `<html><head><meta http-equiv="refresh" content="60;url=https://example.com/other"></head>
+<body><p>real refresh</p></body></html>`
+	b.renderPage(tab, html, "https://example.com/p")
+
+	if tab.metaRefreshCancel == nil {
+		t.Fatal("different-target refresh should be scheduled")
+	}
+	if !strings.Contains(tab.textView.GetText(false), "real refresh") {
+		t.Errorf("page with a real refresh target should still render: %q", tab.textView.GetText(false))
+	}
+	// Cancel the pending refresh so its goroutine exits instead of firing
+	// long after the test finishes.
+	tab.metaRefreshCancel()
 }
