@@ -3,12 +3,28 @@ name: Build & Test
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same ref makes the in-flight run obsolete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Single source of truth. Must stay >= the go directive in go.mod, and the
+  # patch level matters: 1.25.13 carries the crypto/x509, crypto/tls, net/url
+  # and net/http fixes that govulncheck flags on earlier 1.25.x.
+  GO_VERSION: '1.25.13'
 
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,7 +32,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Download dependencies
@@ -26,6 +42,9 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
+
+      - name: Verify dependencies are unmodified
+        run: go mod verify
 
       - name: Gofmt check
         run: |
@@ -40,42 +59,22 @@ jobs:
       - name: Go vet
         run: go vet ./...
 
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: linux
-            runner: ubuntu-latest
-          - os: macos
-            runner: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # The build targets windows and darwin, so vet must too: a
+      # platform-specific compile error would otherwise only surface in the
+      # build job, after tests have already run.
+      - name: Go vet (cross-platform)
+        run: |
+          GOOS=windows go vet ./...
+          GOOS=darwin go vet ./...
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
         with:
-          go-version: '1.24'
-          cache: true
+          version: v2.13.2
+          args: --timeout=10m
 
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Build
-        run: go build ./...
-
-      - name: Test
-        run: go test ./... -v -count=1
-
-      - name: Test with race detector
-        run: go test ./... -race -count=1
-
-  coverage:
-    name: Coverage
+  vulncheck:
+    name: Vulnerability scan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -85,7 +84,69 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Fails the job on any reachable vulnerability. This browser parses
+      # untrusted HTML and decodes untrusted images, so a reachable CVE in
+      # x/net/html or x/image is a live exposure, not a paperwork item.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-latest
+          - os: macos
+            runner: macos-latest
+          # Windows is a supported build target and config.go branches on
+          # runtime.GOOS, so the path handling needs real coverage here.
+          - os: windows
+            runner: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+
+      # -shuffle=on catches order dependence between tests that share process
+      # state (viper globals, tview.Styles, the cookie jar).
+      - name: Test
+        run: go test ./... -count=1 -shuffle=on
+
+      - name: Test with race detector
+        run: go test ./... -race -count=1
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Download dependencies
@@ -95,6 +156,20 @@ jobs:
         run: |
           go test ./... -coverprofile=coverage.out -count=1
           go tool cover -func=coverage.out
+
+      # Ratchet, not an aspiration: the suite sits at 81.2%. Set below the
+      # current figure so an unrelated refactor does not fail the build, but
+      # high enough that deleting a test file does.
+      - name: Enforce coverage floor
+        env:
+          MIN_COVERAGE: '78.0'
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
+          echo "total coverage: ${total}% (floor ${MIN_COVERAGE}%)"
+          awk -v t="$total" -v m="$MIN_COVERAGE" 'BEGIN { exit !(t+0 >= m+0) }' || {
+            echo "::error::coverage ${total}% is below the ${MIN_COVERAGE}% floor"
+            exit 1
+          }
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -107,6 +182,8 @@ jobs:
     name: Build (${{ matrix.os }}/${{ matrix.arch }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Do not ship artefacts from a tree that fails its own checks.
+    needs: [lint, test]
     strategy:
       fail-fast: false
       matrix:
@@ -136,7 +213,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Download dependencies
@@ -146,18 +223,22 @@ jobs:
         run: |
           ext=""
           if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
-          env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.arch }} \
-            go build -ldflags="-s -w" -o "./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}"
+          env CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.arch }} \
+            go build -trimpath -ldflags="-s -w" \
+              -o "./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}" .
 
-      - name: Install UPX (Compress binary)
-        if: matrix.goos != 'darwin'
+      # UPX only for linux/amd64 and windows/amd64: it mangles arm64 binaries
+      # and macOS refuses to run packed ones. continue-on-error is deliberate,
+      # compression is a nicety, not a release requirement.
+      - name: Compress binary (UPX)
+        if: (matrix.goos == 'linux' || matrix.goos == 'windows') && matrix.arch == 'amd64'
         continue-on-error: true
         run: |
-          sudo apt update
-          sudo apt install -y upx-ucl
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl
           ext=""
           if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
-          upx --best "./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}" || true
+          upx --best "./bin/t-browser-${{ matrix.os }}-${{ matrix.arch }}${ext}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
